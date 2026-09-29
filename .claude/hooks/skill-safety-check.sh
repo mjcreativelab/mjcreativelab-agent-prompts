@@ -7,8 +7,11 @@ CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null)
 # npx skills add / install コマンドのみ処理
 echo "$CMD" | grep -qE 'npx skills (add|install)' || exit 0
 
-# 直近 2 分以内に作成・更新された SKILL.md を検索
-NEWLY_ADDED=$(find ~/.claude/skills -name 'SKILL.md' -type f -mmin -2 2>/dev/null)
+# 直近 2 分以内に作成・更新された SKILL.md を検索する。npx skills の実体は .agents/skills に置かれ、
+# .claude/skills 側は symlink になる（find は symlink をたどらないため重複しない）。グローバルとプロジェクトの両方を見る
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
+NEWLY_ADDED=$(find ~/.agents/skills ~/.claude/skills "$PROJECT_DIR/.agents/skills" "$PROJECT_DIR/.claude/skills" \
+  -name 'SKILL.md' -type f -mmin -2 2>/dev/null | sort -u)
 [ -z "$NEWLY_ADDED" ] && exit 0
 
 FINDINGS=""
@@ -17,9 +20,9 @@ while IFS= read -r f; do
   [ -f "$f" ] || continue
   ISSUES=""
 
-  # インラインシェル実行 (Claude Code スキルの ! プレフィックス)
-  grep -qE '^\s*!\s+\S' "$f" 2>/dev/null \
-    && ISSUES="${ISSUES}\n  - インラインシェル実行 (! コマンド)"
+  # 動的コンテキスト注入（!`コマンド`。スキル読み込み時にシェルが実行される）
+  grep -qE '!`[^`]+`' "$f" 2>/dev/null \
+    && ISSUES="${ISSUES}\n  - 動的コンテキスト注入（!\`コマンド\`）"
 
   # 危険なコマンドパターン
   grep -qE 'rm[[:space:]]+-rf' "$f" 2>/dev/null \
@@ -43,11 +46,11 @@ while IFS= read -r f; do
 
   if [ -n "$ISSUES" ]; then
     NAME=$(basename "$(dirname "$f")")
-    FINDINGS="${FINDINGS}\n⚠️  ${NAME}:${ISSUES}"
+    FINDINGS="${FINDINGS}\n⚠️  ${NAME}（${f/#$HOME/~}）:${ISSUES}"
   fi
 done <<< "$NEWLY_ADDED"
 
 if [ -n "$FINDINGS" ]; then
-  MSG=$(printf '🔒 スキル安全チェック警告\n\n危険なパターンを検出しました:%s\n\n確認: cat ~/.claude/skills/<name>/SKILL.md\n削除: npx skills remove <name>' "$FINDINGS")
+  MSG=$(printf '🔒 スキル安全チェック警告\n\n危険なパターンを検出しました:%b\n\n確認: 上記パスの SKILL.md を開いて内容を確認する\n削除: npx skills remove <name>' "$FINDINGS")
   jq -n --arg msg "$MSG" '{"systemMessage": $msg}'
 fi
