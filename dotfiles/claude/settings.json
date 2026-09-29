@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "CMD=$(jq -r '.tool_input.command // empty' 2>/dev/null); if echo \"$CMD\" | grep -qE '(>|>>|tee|sed|cp).*\\.env' && ! echo \"$CMD\" | grep -qE '\\.env\\.sample'; then echo 'BLOCK: Bash 経由での .env 系ファイル操作は禁止です。' >&2; exit 2; fi"
+            "command": "CMD=$(jq -r '.tool_input.command // empty' 2>/dev/null); if echo \"$CMD\" | grep -qE '(>|(^|[^[:alnum:]_.-])(tee|sed|cp)([[:space:]]|$))(.*[^[:alnum:]_.])?\\.env' && ! echo \"$CMD\" | grep -qE '\\.env\\.sample'; then echo 'BLOCK: Bash 経由での .env 系ファイル操作は禁止です。' >&2; exit 2; fi"
           }
         ]
       },
