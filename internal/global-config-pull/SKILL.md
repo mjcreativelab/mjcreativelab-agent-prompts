@@ -26,10 +26,11 @@ metadata:
 **除外（同期しない）:**
 
 - 秘密情報: `.credentials.json`・`remote-settings.json`（認証情報・リモート管理設定。リポジトリに置かない）・`.config-sync-exclude`（サニタイズ対象の marketplace 名を書くローカル限定ファイル。手順 3 参照）・`.zozo-guidelines-url`（ZOZO社の開発ガイドライン Confluence ページの実 URL。社内情報のためリポジトリに置かない。CLAUDE.md の「ZOZO社の開発ガイドライン準拠」ルールから参照される）
+- 非公開の指示: `private/`（公開しない指示本文の置き場。`~/.claude/CLAUDE.md` から `@~/.claude/private/<ファイル>.md` で import するため、ミラーには import 行だけが載り本文は載らない）
 - 配布物: `skills/`（npx skills / plugin marketplace の install 先。手書き設定ではなく各配布元リポジトリが正本）
-- 状態・キャッシュ: `projects/`・`plugins/`・`backups/`・`cache/`・`chrome/`（Claude in Chrome の native host wrapper。CLI が自動生成しマシン固有の絶対パスとバージョンを埋め込む）・`debug/`・`downloads/`・`file-history/`・`ide/`・`paste-cache/`・`session-env/`・`sessions/`・`shell-snapshots/`・`tasks/`・`telemetry/`・`auto-resume/`・`security/`・`.cc-writes/`・`history.jsonl`・`stats-cache.json`・`security_warnings_state_*.json`・`mcp-needs-auth-cache.json`・`.last-*`・`*.bak.*`・`.DS_Store`
+- 状態・キャッシュ: `projects/`・`plugins/`・`backups/`・`cache/`・`chrome/`（Claude in Chrome の native host wrapper。CLI が自動生成しマシン固有の絶対パスとバージョンを埋め込む）・`debug/`・`downloads/`・`file-history/`・`ide/`・`paste-cache/`・`session-env/`・`sessions/`・`shell-snapshots/`・`tasks/`・`telemetry/`・`auto-resume/`・`security/`・`.cc-writes/`・`bridge-spawn/`・`daemon/`・`daemon.log`・`feedback/`・`jobs/`・`seed-admin/`・`state/`（バックグラウンドセッション・Remote Control・フィードバック下書き等の実行時状態）・`hooks/.logs/`（hook の実行ログ。手順 1 の rsync で除外）・`history.jsonl`・`stats-cache.json`・`gh-pr-status-cache.json`・`security_warnings_state_*.json`・`mcp-needs-auth-cache.json`・`.last-*`・`*.bak.*`・`.DS_Store`
 
-**このリポジトリは public** のため、ミラーに社内・非公開の情報を出さない（手順 2 のパス正規化・手順 3 のサニタイズ・手順 4 の秘密情報チェックがその防波堤）。
+**このリポジトリは public** のため、ミラーに社内・非公開の情報を出さない（手順 2 のパス正規化・手順 3 のサニタイズ・手順 4 の秘密情報チェック、および非公開の指示本文を `private/` に分けて同期しないことがその防波堤）。
 
 ## 手順
 
@@ -41,7 +42,7 @@ metadata:
      [ -f ~/.claude/"$f" ] && cp ~/.claude/"$f" dotfiles/claude/"$f"
    done
    for d in rules hooks agents commands; do
-     [ -d ~/.claude/"$d" ] && rsync -a --delete --exclude '.DS_Store' --exclude '*.bak.*' ~/.claude/"$d"/ dotfiles/claude/"$d"/
+     [ -d ~/.claude/"$d" ] && rsync -a --delete --exclude '.DS_Store' --exclude '*.bak.*' --exclude '.logs' ~/.claude/"$d"/ dotfiles/claude/"$d"/
    done
    ```
 
@@ -62,9 +63,12 @@ metadata:
        | (if has("extraKnownMarketplaces") then .extraKnownMarketplaces |= with_entries(.key as $k | select(($mps | index($k)) == null)) else . end)
      ' dotfiles/claude/settings.json > "${TMPDIR:-/tmp}/settings-sanitized.json" \
        && mv "${TMPDIR:-/tmp}/settings-sanitized.json" dotfiles/claude/settings.json
+   else
+     echo "除外ファイルなし: サニタイズ未実施。live の marketplace 一覧:"
+     jq -r '.extraKnownMarketplaces // {} | keys[]' ~/.claude/settings.json
    fi
    ```
-   除去されるのは `enabledPlugins` の `"<plugin>@<marketplace>"` エントリと `extraKnownMarketplaces` の同名キー。**live 側（`~/.claude/settings.json`）は変更しない**ため手元の動作に影響はなく、`global-config-push` は反映時に live の該当エントリを保持する（両スキルで対の実装。片方だけ変えない）。除外ファイルが無い環境ではサニタイズをスキップする（従来動作）。
+   除去されるのは `enabledPlugins` の `"<plugin>@<marketplace>"` エントリと `extraKnownMarketplaces` の同名キー。**live 側（`~/.claude/settings.json`）は変更しない**ため手元の動作に影響はなく、`global-config-push` は反映時に live の該当エントリを保持する（両スキルで対の実装。片方だけ変えない）。除外ファイルが無い場合は**サニタイズ未実施のまま先へ進めない**: 表示された marketplace 一覧に非公開のものがないかユーザーに確認し（`AskUserQuestion`）、あれば除外ファイルを作ってから本手順をやり直す。すべて公開なら、コメント行だけの除外ファイルを作って以後の確認を省く（除外ファイルは push のマージでも使われ、無いと live の非公開 marketplace が push で消える）。
 
 4. **秘密情報チェック（Security ルール準拠）:** ミラーに実トークン・API キー等の値が混入していないか確認する:
    ```bash
@@ -76,7 +80,7 @@ metadata:
    ```bash
    ls -A ~/.claude | sed 's:/*$::' \
      | grep -vE '^(CLAUDE\.md|settings\.json|statusline-command\.sh|keybindings\.json|\.mcp\.json|rules|hooks|agents|commands)$' \
-     | grep -vE '^(skills|projects|plugins|backups|cache|chrome|debug|downloads|file-history|ide|paste-cache|session-env|sessions|shell-snapshots|tasks|telemetry|auto-resume|security|\.cc-writes|\.credentials\.json|remote-settings\.json|\.config-sync-exclude|\.zozo-guidelines-url|history\.jsonl|stats-cache\.json|mcp-needs-auth-cache\.json|\.DS_Store)$' \
+     | grep -vE '^(skills|projects|plugins|backups|cache|chrome|debug|downloads|file-history|ide|paste-cache|session-env|sessions|shell-snapshots|tasks|telemetry|auto-resume|security|\.cc-writes|private|bridge-spawn|daemon|daemon\.log|feedback|jobs|seed-admin|state|gh-pr-status-cache\.json|\.credentials\.json|remote-settings\.json|\.config-sync-exclude|\.zozo-guidelines-url|history\.jsonl|stats-cache\.json|mcp-needs-auth-cache\.json|\.DS_Store)$' \
      | grep -vE '^(security_warnings_state_.*|\.last-.*|.*\.bak\..*)$' \
      || echo "新しい同期候補なし"
    ```

@@ -14,18 +14,34 @@
       "mcp__plugin_github_github__search_issues",
       "mcp__plugin_github_github__get_file_contents",
       "mcp__plugin_github_github__list_issues",
-      "mcp__plugin_github_github__list_pull_requests"
+      "mcp__plugin_github_github__list_pull_requests",
+      "mcp__claude_ai_Atlassian__getConfluencePage",
+      "mcp__claude_ai_Atlassian__searchConfluenceUsingCql",
+      "mcp__claude_ai_Atlassian__getJiraIssue",
+      "mcp__claude_ai_Atlassian__searchJiraIssuesUsingJql"
     ],
-    "additionalDirectories": ["/tmp"]
+    "additionalDirectories": [
+      "/tmp"
+    ]
   },
+  "model": "opus",
   "hooks": {
     "PreToolUse": [
+      {
+        "matcher": "mcp__claude_ai_Slack__slack_read_channel|mcp__claude_ai_Slack__slack_read_thread",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "channel=$(jq -r '.tool_input.channel_id // .tool_input.channel // empty' 2>/dev/null); if [[ \"$channel\" =~ ^[DG] ]]; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Slack DM の読み取りは禁止されています\"}}'; fi"
+          }
+        ]
+      },
       {
         "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",
-            "command": "FILE=$(echo \"$TOOL_INPUT\" | sed -n 's/.*\"file_path\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p'); case \"$FILE\" in */.env|*/.env.*) case \"$FILE\" in */.env.sample|*/.env.sample.*) ;; *) echo \"BLOCK: .env 系ファイル ($FILE) への直接書き込みは禁止です。.env.sample を編集してください。\" >&2; exit 2 ;; esac ;; esac"
+            "command": "FILE=$(jq -r '.tool_input.file_path // empty' 2>/dev/null); case \"$FILE\" in */.env|*/.env.*) case \"$FILE\" in */.env.sample|*/.env.sample.*) ;; *) echo \"BLOCK: .env 系ファイル ($FILE) への直接書き込みは禁止です。.env.sample を編集してください。\" >&2; exit 2 ;; esac ;; esac"
           }
         ]
       },
@@ -34,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "CMD=$(echo \"$TOOL_INPUT\" | sed -n 's/.*\"command\"[[:space:]]*:[[:space:]]*\"\\(.*\\)\"/\\1/p'); if echo \"$CMD\" | grep -qE '(>|>>|tee|sed|cp).*\\.env' && ! echo \"$CMD\" | grep -qE '\\.env\\.sample'; then echo 'BLOCK: Bash 経由での .env 系ファイル操作は禁止です。' >&2; exit 2; fi"
+            "command": "CMD=$(jq -r '.tool_input.command // empty' 2>/dev/null); if echo \"$CMD\" | grep -qE '(>|>>|tee|sed|cp).*\\.env' && ! echo \"$CMD\" | grep -qE '\\.env\\.sample'; then echo 'BLOCK: Bash 経由での .env 系ファイル操作は禁止です。' >&2; exit 2; fi"
           }
         ]
       },
@@ -43,7 +59,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "CMD=$(echo \"$TOOL_INPUT\" | sed -n 's/.*\"command\"[[:space:]]*:[[:space:]]*\"\\(.*\\)\"/\\1/p'); if echo \"$CMD\" | grep -qE 'git\\s+commit'; then if git branch --show-current 2>/dev/null | grep -qE '^main$'; then echo 'BLOCK: main ブランチへの直接コミットは禁止です。feature branch を使ってください。' >&2; exit 2; fi; fi; if echo \"$CMD\" | grep -qE 'git\\s+push'; then if git branch --show-current 2>/dev/null | grep -qE '^main$'; then echo 'BLOCK: main ブランチからの push は禁止です。feature branch を使ってください。' >&2; exit 2; fi; if echo \"$CMD\" | grep -qE 'git\\s+push\\s+.*(:main|HEAD:main|\\smain$|\\smain\\s)'; then echo 'BLOCK: main ブランチへの直接 push は禁止です。PR 経由でマージしてください。' >&2; exit 2; fi; fi"
+            "command": "CMD=$(jq -r '.tool_input.command // empty' 2>/dev/null); if echo \"$CMD\" | grep -qE 'git\\s+commit'; then if git branch --show-current 2>/dev/null | grep -qE '^main$'; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"main ブランチへの直接コミットです。意図した操作（「main にコミット」の特例など）か確認してください。\"}}'; exit 0; fi; fi; if echo \"$CMD\" | grep -qE 'git\\s+push'; then if git branch --show-current 2>/dev/null | grep -qE '^main$'; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"main ブランチ上での push です。タグの push（/auto-release）など意図した操作か確認してください。\"}}'; exit 0; fi; if echo \"$CMD\" | grep -qE 'git\\s+push\\s+.*(:main|HEAD:main|\\smain$|\\smain\\s)'; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"main ブランチへの直接 push です。意図した操作か確認してください。\"}}'; exit 0; fi; fi"
           }
         ]
       },
@@ -52,7 +68,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "CMD=$(echo \"$TOOL_INPUT\" | sed -n 's/.*\"command\"[[:space:]]*:[[:space:]]*\"\\(.*\\)\"/\\1/p'); if echo \"$CMD\" | grep -qE 'git\\s+(reset\\s+--hard|push\\s+--force|push\\s+-f\\b|push\\s+.*--force-with-lease|clean\\s+-[a-zA-Z]*[fx]|checkout\\s+--\\s+\\.|branch\\s+-D)'; then echo 'BLOCK: 破壊的 git 操作を検出しました。この操作は禁止されています。' >&2; exit 2; fi"
+            "command": "CMD=$(jq -r '.tool_input.command // empty' 2>/dev/null); if echo \"$CMD\" | grep -qE 'git\\s+(reset\\s+--hard|push\\s+--force|push\\s+-f\\b|push\\s+.*--force-with-lease|clean\\s+-[a-zA-Z]*[fx]|checkout\\s+--\\s+\\.|branch\\s+-D)'; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"破壊的 git 操作を検出しました。意図した操作か確認してください。\"}}'; exit 0; fi"
           }
         ]
       }
@@ -91,7 +107,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if echo \"$TOOL_INPUT\" | grep -q '\"file_path\".*CLAUDE\\.md\"'; then DIR=$(echo \"$TOOL_INPUT\" | sed -n 's/.*\"file_path\"[[:space:]]*:[[:space:]]*\"\\(.*\\)\\/CLAUDE\\.md\".*/\\1/p'); if [ -n \"$DIR\" ]; then AGENTS=\"$DIR/AGENTS.md\"; if [ ! -L \"$AGENTS\" ]; then rm -f \"$AGENTS\" 2>/dev/null; ln -s CLAUDE.md \"$AGENTS\"; fi; fi; fi"
+            "command": "FILE=$(jq -r '.tool_input.file_path // empty' 2>/dev/null); case \"$FILE\" in */CLAUDE.md) AGENTS=\"${FILE%/CLAUDE.md}/AGENTS.md\"; if [ ! -e \"$AGENTS\" ] && [ ! -L \"$AGENTS\" ]; then ln -s CLAUDE.md \"$AGENTS\"; fi ;; esac"
           }
         ]
       }
@@ -115,7 +131,8 @@
     "superpowers@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": true,
     "claude-code-setup@claude-plugins-official": true,
-    "andrej-karpathy-skills@karpathy-skills": true
+    "andrej-karpathy-skills@karpathy-skills": true,
+    "pyright-lsp@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "anthropic-agent-skills": {
@@ -152,12 +169,17 @@
       }
     }
   },
-  "effortLevel": "medium",
+  "effortLevel": "high",
+  "modelSettings": {
+    "claude-opus-5-5": {
+      "effortLevel": "xhigh"
+    }
+  },
   "advisorModel": "opus",
   "tui": "fullscreen",
   "showThinkingSummaries": true,
   "skipWorkflowUsageWarning": true,
   "switchModelsOnFlag": true,
-  "autoUpdates": false,
-  "model": "sonnet"
+  "agentPushNotifEnabled": true,
+  "autoUpdates": false
 }

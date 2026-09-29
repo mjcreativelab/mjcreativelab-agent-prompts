@@ -17,9 +17,9 @@ pull（global-config-pull）と同一。ミラー側に存在するものだけ�
 - ファイル: `CLAUDE.md`・`settings.json`・`statusline-command.sh`・`keybindings.json`・`.mcp.json`
 - ディレクトリ: `rules/`・`hooks/`・`agents/`・`commands/`
 
-push は追加・上書きのみ行い、`~/.claude/` 側にしかないファイルは削除しない（ローカル限定ファイルの保護。削除の反映＝ミラー同期は pull 側のみ）。
+push は追加・上書きのみ行い、`~/.claude/` 側にしかないファイルは削除しない（ローカル限定ファイルの保護。削除の反映＝ミラー同期は pull 側のみ）。`~/.claude/private/`（公開しない指示本文。CLAUDE.md から `@` import する）はミラーに無いため push も触らない。CLAUDE.md を上書きしても import 行は残り、本文は `private/` 側に残る。
 
-`settings.json` だけは単純コピーではなく**マージ**で反映する（手順 3）。pull 側がミラー作成時に (a) `$HOME` を `~` へ正規化し、(b) `~/.claude/.config-sync-exclude` に列挙した非公開 marketplace のエントリを除去しているため、そのまま上書きすると live の絶対パスが `~` リテラルに化け、社内 marketplace の設定が消えるため。
+`settings.json` だけは単純コピーではなく**マージ**で反映する（手順 3）。pull 側がミラー作成時に (a) `$HOME` を `~` へ正規化し、(b) `~/.claude/.config-sync-exclude` に列挙した非公開 marketplace のエントリを除去しているため、そのまま上書きすると live の絶対パスが `~` リテラルに化け、社内 marketplace の設定が消えるため。除外ファイルが無いとマージで保持する対象が空になり、live の非公開 marketplace が消える。無い場合は push の前に pull 手順 3 と同じ確認を行い、除外ファイルを作る。
 
 ## 手順
 
