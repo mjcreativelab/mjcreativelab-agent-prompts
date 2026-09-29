@@ -238,3 +238,39 @@ Opus 化したレビュー役（#111）が過剰処理（サブエージェン�
 - plan-editor / fix の不採用率（0% 常態からの変化。P3 の効き目）
 - Low 指摘の dismissed への移動率（P2 がレビュワー段階で効いているか、Judge 段階まで漏れるか）
 - effort high 化後のラウンド 1 指摘数・確認ラウンド追加検出（#111 Phase C の recall プロキシと比較。劣化があれば P5 のみ切り戻し可能 — P1〜P4 とは独立したレバー）
+
+## Issue #142 レビュー役のモデル再配分 — 包括ラウンドのみ opus・以降は Sonnet 5.5（2026-09-29 実装・実測待ち）
+
+### 根拠（Sonnet 5.5 公式ガイド https://claude.dev/blog/building-with-claude-sonnet-5-5/ ）
+
+- モデル選定表: "Well-defined agent tasks you run repeatedly: investigation, review, drafting" と「要件との照合（verifying against requirements）」は Sonnet 5.5、"Complex work requiring careful judgment, including long-horizon agentic coding" は Opus 5.5。"Sonnet 5.5 fits best when the task has a clear spec and a way to check the result."
+- 単価は Opus 5.5 の半額（入力 $2 / 出力 $10 per MTok）。ブログの「30% 高速・最大 30% 安価」は **Sonnet 5 比**で、Opus 比の速度は明記がない
+- effort は再較正済み（旧設定は引き継がれない）。"Use `xhigh` or `max` only where your evals show a quality gain."
+- Claude Code v2.1.284 以降で `sonnet` エイリアスが Sonnet 5.5 に解決される（実装時点のホストは v2.1.280 で、直近 7 日の transcript の sonnet 呼び出しはすべて `claude-sonnet-5`）
+
+### 変更（sir 雛形 B ↔ sip の構造同期 + sir 雛形 C）
+
+| 役割 | 変更前 | 変更後 |
+|---|---|---|
+| 包括ラウンド（初回セット round 1）のレビュワー G1/G2/G3・Breaker S/C/O・その Judge バッチ | opus / high | opus / high（維持） |
+| 差分スコープのラウンド 2+・確認ラウンド・継続セットの単発レビュワー / 単発 Breaker・その Judge バッチ | opus / high | sonnet / high |
+| 雛形 C（codex 敵対）のセキュリティ監査役・Breaker | sonnet / max | sonnet / high |
+
+- 実装は `const reviewModel = comprehensive ? 'opus' : 'sonnet'`（#113 の包括ラウンド判定に追従。新しい分岐軸は増やさない）
+- Judge を全ラウンド sonnet にしなかった理由: Judge が `dismissed` にした反例は fix / plan-editor に届かないため、sonnet Judge の誤棄却は無音の recall 損失になる（opus の fix は「採りすぎ」は止められるが「捨てすぎ」は取り戻せない）。反例が集中する包括ラウンド（例: 804 r1 = 31 件・8 バッチ）の裁定は opus を維持した
+- 対象外: cr / cra（単発の包括レビューのみで反復ラウンドを持たない）、memory-dream の claude 系レビュワー（sonnet / max のまま。CLI 更新で Sonnet 5.5 の max になる点は別途判断）
+
+### 事前の限界認識
+
+- #111 Phase C の「ラウンド 1 指摘数 1〜2 件（sonnet 単発）→ 5〜14 件（opus・分割）」はモデルと分割並列の効果が交絡しており、しかも Sonnet 5 以前の値のため、Sonnet 5.5 の recall を占う根拠にならない
+- #134 の診断どおり時間の支配要因はラウンド数で、モデル変更で縮むのは 1 ラウンドあたりのコストだけ（非収束は解消しない）。モデルが変わると見落とす箇所も変わるため、確認ラウンドの追加検出が増える可能性がある
+
+### 採取予定（次回 dogfooding。CLI v2.1.284 以上で実施すること）
+
+- 収束ラウンド数・総時間・総トークン（#134 節の表と同一 Issue 規模で比較）
+- ラウンド 2+ / 確認ラウンドの 1 ラウンドあたり所要時間とトークン（opus 時代の同種ラウンドと比較）
+- 確認ラウンドの追加検出数（#111 Phase C では 0 件が安定。増えれば sonnet の見落とし分布の差を疑う）
+- fix / plan-editor の不採用率（sonnet の指摘品質の低下が不採用増として現れるか）
+- Judge（ラウンド 2+）の dismissed 率（誤棄却の兆候。包括ラウンドの opus Judge と比較）
+- transcript のモデルメタが round 1 = opus 系・round 2+ = `claude-sonnet-5-5` になっていること（CLI 未更新で Sonnet 5 のまま走っていないかの確認）
+- 劣化が見られた場合の切り戻しは `reviewModel` を `'opus'` 固定に戻すだけ（雛形 C の effort とは独立したレバー）

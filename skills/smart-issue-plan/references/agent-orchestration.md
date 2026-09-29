@@ -61,7 +61,7 @@ export const meta = {
   name: 'sip-plan-review-set',
   description: 'smart-issue-plan claude 系計画レビューループ 1 セット（最大 3 ラウンド）',
   phases: [
-    { title: 'Review', detail: '包括ラウンド（初回セット round 1）は Breaker レンズ S/C/O（敵対）/ レビュワー観点グループ G1/G2/G3（標準）の並列、以降のラウンドは単発 1 体（全観点横断）。敵対は続けて Judge バッチ並列裁定。レンズ S は初回セット round 1 でセキュリティ監査を内蔵' },
+    { title: 'Review', detail: '包括ラウンド（初回セット round 1）は Breaker レンズ S/C/O（敵対）/ レビュワー観点グループ G1/G2/G3（標準）の並列、以降のラウンドは単発 1 体（全観点横断）。敵対は続けて Judge バッチ並列裁定。レンズ S は初回セット round 1 でセキュリティ監査を内蔵。モデルは包括ラウンドのみ opus・以降は sonnet' },
     { title: 'Edit', detail: 'plan-editor による採用判定・計画修正' },
   ],
 }
@@ -294,9 +294,11 @@ for (let i = 0; i < 3; i++) {
   const delta = isConfirmRound ? '' : fixDelta(i)
   // 分割並列は包括ラウンド（初回セット round 1）限定。差分スコープのラウンド 2+・確認ラウンド・継続セットは単発 1 体（全観点横断）で実施する（Issue #113: トークン・ストール露出の抑制）
   const comprehensive = args.startRound === 1 && i === 0 && !isConfirmRound
+  // レビュー役（レビュワー / Breaker / Judge）のモデルは包括ラウンドのみ opus（広範囲・判断重視）、以降の繰り返しラウンドは sonnet（定義の明確な反復レビュー）。Judge も同じ規則に従う — dismissed は plan-editor に届かず誤棄却が無音の見落としになるため、シナリオが集中する包括ラウンドの裁定は opus を維持する（Issue #142）
+  const reviewModel = comprehensive ? 'opus' : 'sonnet'
   const launchDesc = args.mode === 'adversarial'
-    ? `Breaker ${comprehensive ? '3 レンズ（S/C/O）並列' : '単発 1 体'}`
-    : `レビュワー ${comprehensive ? '3 グループ（G1/G2/G3）並列' : '単発 1 体'}`
+    ? `Breaker ${comprehensive ? '3 レンズ（S/C/O）並列' : '単発 1 体'}（${reviewModel}）`
+    : `レビュワー ${comprehensive ? '3 グループ（G1/G2/G3）並列' : '単発 1 体'}（${reviewModel}）`
   log(`${ts(lastJst)}計画レビューラウンド ${round}（${args.mode}）開始${isConfirmRound ? '（確認ラウンド: 連続クリーン確認・差分スコープ解除）' : ''} — ${launchDesc}を起動`)
   let findings = null
   if (args.mode === 'adversarial') {
@@ -305,7 +307,7 @@ for (let i = 0; i < 3; i++) {
     const lenses = comprehensive ? LENSES : [LENS_ALL]
     const lensResults = await parallel(lenses.map((lens) => () =>
       agent(breakerLensPrompt(round, lens, delta, isAuditRound && lens.id === 'S'),
-        { label: `breaker:r${round}-${lens.token}`, phase: 'Review', model: 'opus', effort: 'high',
+        { label: `breaker:r${round}-${lens.token}`, phase: 'Review', model: reviewModel, effort: 'high',
           schema: (isAuditRound && lens.id === 'S') ? BREAK_S_SCHEMA : BREAK_SCHEMA })))
     const okLenses = lensResults.filter(Boolean)
     if (okLenses.length === 0) { status = 'agent-failed'; break }
@@ -324,7 +326,7 @@ for (let i = 0; i < 3; i++) {
     if (batches.length > 0) log(`${ts(lastJst)}judge r${round} 起動（シナリオ${scen.length}件・${batches.length}バッチ並列）`)
     const batchResults = batches.length === 0 ? [] : await parallel(batches.map((batch, bi) => () =>
       agent(judgeBatchPrompt(round, batch, bi + 1, batches.length),
-        { label: `judge:r${round}-b${bi + 1}`, phase: 'Review', model: 'opus', effort: 'high', schema: FINDINGS_SCHEMA })))
+        { label: `judge:r${round}-b${bi + 1}`, phase: 'Review', model: reviewModel, effort: 'high', schema: FINDINGS_SCHEMA })))
     const ok = batchResults.filter(Boolean)
     if (batches.length > 0 && ok.length === 0) { status = 'agent-failed'; break }
     if (ok.length < batches.length) { judgeDegraded = true; log(`judge r${round}: ${batches.length - ok.length}/${batches.length} バッチ失敗（部分裁定で続行・未裁定のシナリオあり）`) }
@@ -336,7 +338,7 @@ for (let i = 0; i < 3; i++) {
     const groups = comprehensive ? REVIEWER_GROUPS : [REVIEWER_ALL]
     const groupResults = await parallel(groups.map((group) => () =>
       agent(reviewerGroupPrompt(round, group, delta),
-        { label: `reviewer:r${round}-${group.id}`, phase: 'Review', model: 'opus', effort: 'high', schema: FINDINGS_SCHEMA })))
+        { label: `reviewer:r${round}-${group.id}`, phase: 'Review', model: reviewModel, effort: 'high', schema: FINDINGS_SCHEMA })))
     const okGroups = groupResults.filter(Boolean)
     if (okGroups.length === 0) { status = 'agent-failed'; break }
     if (okGroups.length < groups.length) { reviewerDegraded = true; log(`reviewer r${round}: ${groups.length - okGroups.length}/${groups.length} グループ失敗（部分レビューで続行・未探索の観点あり）`) }
@@ -417,12 +419,12 @@ return { converged, status, records, specQuestions: uniqueSpecQuestions, auditFa
 - 敵対モード Judge のバッチ並列化: Breaker 出力を ≤4 件/バッチに分割し `parallel` で並列裁定する（`judgeBatchPrompt` / `effort: 'high'`〔Issue #111 で max 化 → ≤4 件/バッチの有界作業量に max は過剰として Issue #113 で high へ戻した〕 / evidence 限定照合。全バッチ失敗のみ `agent-failed`、一部失敗は部分裁定で続行し `judgeDegraded` フラグで伝播）。Breaker のフィールド名だけ意図的に異なる（resolve = `counterexamples`、plan = `scenarios`）
 - **Breaker のレンズ分割並列化（包括ラウンド限定）**: 攻撃観点を S/C/O の 3 レンズに分割し `LENSES` 定義 + フラット `parallel` で同時起動する（union = 現行 Breaker の全観点で内容は不変。一部レンズ失敗は `breakerDegraded` で伝播。レンズごとに `breaker-round-<N>-<lens>.md` を書き並列上書き競合を避ける）。分割は包括ラウンド〔初回セット round 1〕限定で、差分スコープのラウンド 2+・確認ラウンド・継続セットは単発 Breaker（`LENS_ALL` = `LENSES` の aspects 結合で union 不変を構造的に保証）1 体で実施する（Issue #113）
 - **標準レビュワーのグループ分割並列化（包括ラウンド限定）**: 標準モードのレビュワーを観点別グループ G1/G2/G3 の 3 グループに分割し `REVIEWER_GROUPS` 定義 + フラット `parallel` で同時起動する（union = 現行の全 9 観点で内容は不変。Judge 段は無く各グループの `items` を単純結合し、グループ間の重複指摘は plan-editor の採用判定で統合する。一部グループ失敗は `reviewerDegraded` で伝播。観点内容は計画用のため sir とは文言が異なる）。分割は包括ラウンド〔初回セット round 1〕限定で、以降は単発レビュワー（`REVIEWER_ALL` = `REVIEWER_GROUPS` の aspects 結合で union 不変を構造的に保証）1 体で実施する（Issue #113）
-- **レビュー役のモデル opus 化**: 標準レビュワー〔グループ・単発とも〕・Breaker〔レンズ・単発とも。S 含む〕・Judge バッチを `model: 'opus'` に（plan-editor は既に opus。Judge バッチの `effort` は `'high'`〔上記の Issue #113 戻し〕。発見役〔レビュワー / Breaker〕の `effort` は Issue #134 で `'max'` → `'high'` に降格 — Opus 5 プロンプトガイド「レビュー精度は低 effort でも維持され、effort が主なコスト・時間レバー」。plan-editor は編集役のため `'max'` 維持）
+- **レビュー役のモデル配分（包括ラウンドのみ opus・以降は sonnet）**: 標準レビュワー・Breaker・Judge バッチのモデルは `comprehensive` に追従する `reviewModel` で決まる（包括ラウンド〔初回セット round 1 のグループ G1/G2/G3・レンズ S/C/O〈S の監査統合を含む〉と、その Judge バッチ〕は `'opus'`、差分スコープのラウンド 2+・確認ラウンド・継続セット〔単発レビュワー / 単発 Breaker と、その Judge バッチ〕は `'sonnet'`。Issue #111 で一律 opus 化した後、Sonnet 5.5 のモデル選定ガイドに基づき Issue #142 で再配分。Judge も同じ規則に従う〔`dismissed` は plan-editor に届かず誤棄却が無音の見落としになるため包括ラウンドは opus 維持〕。`sonnet` が Sonnet 5.5 に解決されるのは Claude Code v2.1.284 以降。plan-editor は opus。Judge バッチの `effort` は `'high'`〔上記の Issue #113 戻し〕。発見役〔レビュワー / Breaker〕の `effort` は Issue #134 で `'max'` → `'high'` に降格 — Opus 5 プロンプトガイド「レビュー精度は低 effort でも維持され、effort が主なコスト・時間レバー」。plan-editor は編集役のため `'max'` 維持）
 - **セキュリティ監査役のレンズ S 統合**: `securityAudit` 初回セット round 1 でレンズ S が STRIDE 監査 → `security-audit.md` 書き出し → break を 1 エージェントで実施する（独立の前段監査スロットは削除。`auditWritten` フラグで「監査のみ失敗」を `auditFailed` として区別）
 - **差分スコープ化**: `records[].adoptedItems` に採用計画修正の title/action を保持し、ラウンド 2+ の Breaker/レビュワーを直前ラウンドで plan-editor が反映した計画修正が触れた計画節＋影響領域に重点付けする `fixDelta()`。ラウンド 1 は計画全体の包括レビュー。差分スコープの指示には「前ラウンドの追記文への、さらなる詳細要求の禁止（事実誤り・矛盾・手順破綻のみ指摘可）」を含む（自己増殖チェーンの抑制。Issue #134）
 - **軽微指摘フィルタ + Low 採用規律（Issue #134）**: レビュワー / Breaker / Judge に「実装者が通常の判断で埋められる詳細（テスト関数名・改名指示・docstring / コメント文言・ファイル / 行番号列挙の完全性）は items / シナリオにせず 低優先度」を明示（列挙の完全性が Issue の成果物そのものであるドキュメント改訂系 Issue は除く）。plan-editor は Low を原則不採用（採用時も最小編集で計画構造を太らせない）
 - **プロンプトの英語化 + 進捗ログ規約（Issue #122）**: `agent()` プロンプト・スキーマ description は英語、出力内容・`log()`・カテゴリ enum 値は日本語。`TAIL_NOTE` による日本語出力 + `nowJst`（`%Y-%m-%d %H:%M:%S`）指示、`args.startedAt` の開始ログ、`lastJst` 導出のラウンド開始 / judge 起動ログ、ラウンド終了時の指摘・採用内訳ログ（件数上限つき）
-- **Opus 抑制ノート（`RESTRAINT_NOTE`）**: `model: 'opus'` の全 `agent()` プロンプト末尾（`TAIL_NOTE` の直前）に共通の英語抑制ノート（サブエージェント起動・委任の禁止／手順に無い追加検証パスの禁止／依頼スコープの維持／出力・書き出しファイルの簡潔化。Opus 5 プロンプトガイド準拠）を付す（本雛形は全役 opus のため全 `agent()` に付く）
+- **Opus 抑制ノート（`RESTRAINT_NOTE`）**: `model: 'opus'` の全 `agent()` と、`reviewModel` で opus / sonnet を切り替えるレビュー役のプロンプト末尾（`TAIL_NOTE` の直前）に共通の英語抑制ノート（サブエージェント起動・委任の禁止／手順に無い追加検証パスの禁止／依頼スコープの維持／出力・書き出しファイルの簡潔化。Opus 5 プロンプトガイド準拠）を付す（本雛形は全 `agent()` に付く。レビュー役のプロンプトはラウンド共通のため sonnet ラウンドにも付く — 内容は sonnet にも無害）
 
 同期しないもの（**意図的に異なる**）:
 
