@@ -308,7 +308,7 @@ export const meta = {
   name: 'sir-claude-review-set',
   description: 'smart-issue-resolve claude 系レビューループ 1 セット（最大 3 ラウンド + 収束時の最終 QA）',
   phases: [
-    { title: 'Review', detail: '包括ラウンド（初回セット round 1）は Breaker レンズ S/C/O（敵対）/ レビュワー観点グループ G1/G2/G3（標準）の並列、以降のラウンドは単発 1 体（全観点横断）。敵対は続けて Judge バッチ並列裁定。レンズ S は初回セット round 1 でセキュリティ監査を内蔵' },
+    { title: 'Review', detail: '包括ラウンド（初回セット round 1）は Breaker レンズ S/C/O（敵対）/ レビュワー観点グループ G1/G2/G3（標準）の並列、以降のラウンドは単発 1 体（全観点横断）。敵対は続けて Judge バッチ並列裁定。レンズ S は初回セット round 1 でセキュリティ監査を内蔵。モデルは包括ラウンドのみ opus・以降は sonnet' },
     { title: 'Fix', detail: '開発者エージェントによる採用判定・修正・テスト' },
     { title: 'FinalQA', detail: '収束時の独立最終検証' },
   ],
@@ -591,9 +591,11 @@ for (let i = 0; i < 3; i++) {
   const delta = isConfirmRound ? '' : fixDelta(i)
   // 分割並列は包括ラウンド（初回セット round 1）限定。差分スコープのラウンド 2+・確認ラウンド・継続セットは単発 1 体（全観点横断）で実施する（Issue #113: トークン・ストール露出の抑制）
   const comprehensive = args.startRound === 1 && i === 0 && !isConfirmRound
+  // レビュー役（レビュワー / Breaker / Judge）のモデルは包括ラウンドのみ opus（広範囲・判断重視）、以降の繰り返しラウンドは sonnet（定義の明確な反復レビュー）。Judge も同じ規則に従う — dismissed は fix に届かず誤棄却が無音の見落としになるため、反例が集中する包括ラウンドの裁定は opus を維持する（Issue #142）
+  const reviewModel = comprehensive ? 'opus' : 'sonnet'
   const launchDesc = args.mode === 'adversarial'
-    ? `Breaker ${comprehensive ? '3 レンズ（S/C/O）並列' : '単発 1 体'}`
-    : `レビュワー ${comprehensive ? '3 グループ（G1/G2/G3）並列' : '単発 1 体'}`
+    ? `Breaker ${comprehensive ? '3 レンズ（S/C/O）並列' : '単発 1 体'}（${reviewModel}）`
+    : `レビュワー ${comprehensive ? '3 グループ（G1/G2/G3）並列' : '単発 1 体'}（${reviewModel}）`
   log(`${ts(lastJst)}レビューラウンド ${round}（${args.mode}）開始${isConfirmRound ? '（確認ラウンド: 連続クリーン確認・差分スコープ解除）' : ''} — ${launchDesc}を起動`)
   let findings = null
   if (args.mode === 'adversarial') {
@@ -602,7 +604,7 @@ for (let i = 0; i < 3; i++) {
     const lenses = comprehensive ? LENSES : [LENS_ALL]
     const lensResults = await parallel(lenses.map((lens) => () =>
       agent(breakerLensPrompt(round, lens, delta, isAuditRound && lens.id === 'S'),
-        { label: `breaker:r${round}-${lens.token}`, phase: 'Review', model: 'opus', effort: 'high',
+        { label: `breaker:r${round}-${lens.token}`, phase: 'Review', model: reviewModel, effort: 'high',
           schema: (isAuditRound && lens.id === 'S') ? BREAK_S_SCHEMA : BREAK_SCHEMA })))
     const okLenses = lensResults.filter(Boolean)
     if (okLenses.length === 0) { status = 'agent-failed'; break }
@@ -621,7 +623,7 @@ for (let i = 0; i < 3; i++) {
     if (batches.length > 0) log(`${ts(lastJst)}judge r${round} 起動（反例${scen.length}件・${batches.length}バッチ並列）`)
     const batchResults = batches.length === 0 ? [] : await parallel(batches.map((batch, bi) => () =>
       agent(judgeBatchPrompt(round, batch, bi + 1, batches.length),
-        { label: `judge:r${round}-b${bi + 1}`, phase: 'Review', model: 'opus', effort: 'high', schema: FINDINGS_SCHEMA })))
+        { label: `judge:r${round}-b${bi + 1}`, phase: 'Review', model: reviewModel, effort: 'high', schema: FINDINGS_SCHEMA })))
     const ok = batchResults.filter(Boolean)
     if (batches.length > 0 && ok.length === 0) { status = 'agent-failed'; break }
     if (ok.length < batches.length) { judgeDegraded = true; log(`judge r${round}: ${batches.length - ok.length}/${batches.length} バッチ失敗（部分裁定で続行・未裁定の反例あり）`) }
@@ -633,7 +635,7 @@ for (let i = 0; i < 3; i++) {
     const groups = comprehensive ? REVIEWER_GROUPS : [REVIEWER_ALL]
     const groupResults = await parallel(groups.map((group) => () =>
       agent(reviewerGroupPrompt(round, group, delta),
-        { label: `reviewer:r${round}-${group.id}`, phase: 'Review', model: 'opus', effort: 'high', schema: FINDINGS_SCHEMA })))
+        { label: `reviewer:r${round}-${group.id}`, phase: 'Review', model: reviewModel, effort: 'high', schema: FINDINGS_SCHEMA })))
     const okGroups = groupResults.filter(Boolean)
     if (okGroups.length === 0) { status = 'agent-failed'; break }
     if (okGroups.length < groups.length) { reviewerDegraded = true; log(`reviewer r${round}: ${groups.length - okGroups.length}/${groups.length} グループ失敗（部分レビューで続行・未探索の観点あり）`) }
@@ -720,12 +722,12 @@ return { converged, status, records, finalQa, specQuestions: uniqueSpecQuestions
 > - **Breaker のレンズ分割並列化（包括ラウンド限定）**（攻撃観点を S/C/O の 3 レンズに分割し `LENSES` 定義 + フラット `parallel` で同時起動。union = 現行 Breaker の全観点で内容は不変。一部レンズ失敗は `breakerDegraded` で伝播。分割は包括ラウンド〔初回セット round 1〕限定で、差分スコープのラウンド 2+・確認ラウンド・継続セットは単発 Breaker〔`LENS_ALL` = `LENSES` の aspects 結合で union 不変を構造的に保証・probe トークン `all-`〕1 体で実施する — Issue #113）
 > - **標準レビュワーのグループ分割並列化（包括ラウンド限定）**（標準モードのレビュワーを観点別グループ G1/G2/G3 の 3 グループに分割し `REVIEWER_GROUPS` 定義 + フラット `parallel` で同時起動。union = 現行の全 9 観点で内容は不変。Judge 段は無く各グループの `items` を単純結合し、グループ間の重複指摘は fix / plan-editor の採用判定で統合する〔敵対レンズ重複と同じ扱い〕。一部グループ失敗は `reviewerDegraded` で伝播。分割は包括ラウンド〔初回セット round 1〕限定で、以降は単発レビュワー〔`REVIEWER_ALL` = `REVIEWER_GROUPS` の aspects 結合で union 不変を構造的に保証〕1 体で実施する — Issue #113）
 > - **dry-twice 収束判定（重大度フロア。Issue #134）**（「指摘 0 / 真の欠陥 0〔仕様未定のみ〕/ **High/Medium の採用 0**〔`FIX_SCHEMA.adopted[].severity` の echo で判定。Low のみの採用は修正・テスト済みのままクリーン扱い＝軽微修正で収束をリセットしない。`records[].adoptedMajor` に High/Medium 採用数を保持〕」を統一的に「クリーン」とし、連続 2 回〔`cleanStreak >= 2`〕で収束する。1 回目クリーン後の確認ラウンドは差分スコープを解除〔`delta = ''`〕した fresh エージェントで再検証する。`cleanStreak` を `args` と返却で引き継ぎ、`cleanStreak: 1` のまま 3 ラウンド上限に達したケースはセット境界を跨いで連続 2 クリーンを成立させる）
-> - **レビュー役のモデル opus 化**（標準レビュワー〔グループ・単発とも〕・Breaker〔レンズ・単発とも。S 含む〕・Judge バッチを `model: 'opus'` に。QA・probe-cleanup は検証・掃除役のため sonnet 維持〔対象外〕。fix / dev は既に opus。Judge バッチの `effort` は `'high'`〔上記の Issue #113 戻し〕。発見役〔レビュワー / Breaker〕の `effort` は Issue #134 で `'max'` → `'high'` に降格 — Opus 5 プロンプトガイド「レビュー精度は低 effort でも維持され、effort が主なコスト・時間レバー」。fix / dev は編集役のため `'max'` 維持）
+> - **レビュー役のモデル配分（包括ラウンドのみ opus・以降は sonnet）**（標準レビュワー・Breaker・Judge バッチのモデルは `comprehensive` に追従する `reviewModel` で決まる: 包括ラウンド〔初回セット round 1 のグループ G1/G2/G3・レンズ S/C/O〈S の監査統合を含む〉と、その Judge バッチ〕は `'opus'`、差分スコープのラウンド 2+・確認ラウンド・継続セット〔単発レビュワー / 単発 Breaker と、その Judge バッチ〕は `'sonnet'`。Issue #111 で一律 opus 化した後、Sonnet 5.5 のモデル選定ガイド〔繰り返し実行する定義の明確なレビューは Sonnet、慎重な判断を要する複雑な作業は Opus〕に基づき Issue #142 で再配分した。Judge も同じ規則に従う〔`dismissed` は fix に届かず誤棄却が無音の見落としになるため、反例が集中する包括ラウンドの裁定は opus を維持〕。`sonnet` エイリアスが Sonnet 5.5 に解決されるのは Claude Code v2.1.284 以降。QA・probe-cleanup は検証・掃除役のため sonnet〔対象外〕。fix / dev は opus。Judge バッチの `effort` は `'high'`〔上記の Issue #113 戻し〕。発見役〔レビュワー / Breaker〕の `effort` は Issue #134 で `'max'` → `'high'` に降格 — Opus 5 プロンプトガイド「レビュー精度は低 effort でも維持され、effort が主なコスト・時間レバー」。fix / dev は編集役のため `'max'` 維持）
 > - **セキュリティ監査役のレンズ S 統合**（`securityAudit` 初回セット round 1 でレンズ S が STRIDE 監査 → `security-audit.md` 書き出し → break を 1 エージェントで実施。独立の前段監査スロットは削除。`auditWritten` フラグで「監査のみ失敗」を `auditFailed` として区別）
 > - **差分スコープ化**（`records[].adoptedItems` に採用修正の title/action を保持し、ラウンド 2+ の Breaker/レビュワーを直前ラウンドの修正差分とその波及に重点付けする `fixDelta()`。ラウンド 1 は全 diff 包括レビュー。diff 基準は全体維持で重点付けであり抑制ではない。差分スコープの指示には「前ラウンドの採用修正が追加したコードへの、さらなる強化・磨き込み要求の禁止〔回帰・契約破壊・エッジケース失敗など実欠陥のみ指摘可〕」を含む — 自己増殖チェーンの抑制。Issue #134）
 > - **軽微指摘フィルタ + Low 採用規律（Issue #134）**（レビュワー / Breaker / Judge に「実行時挙動・契約・設計判断を変えない指摘〔識別子 / テスト命名・コメント / docstring / ログ文言・ドキュメント列挙の完全性〕は items / 反例にせず 低優先度」を明示〔文言・列挙の完全性が Issue の成果物そのものであるドキュメント改訂系 Issue は除く〕。fix / plan-editor の Low 採用規律は resolve = 「局所・無リスクの場合のみ採用・最小修正」/ plan = 「原則不採用・採用時も最小編集」と意図的に非対称 — コードの Low 修正は安価で回帰テストに守られるが、計画の Low 反映は計画を太らせ次ラウンドの攻撃面になるため）
 > - **プロンプトの英語化 + 進捗ログ規約（Issue #122）**（`agent()` プロンプト・スキーマ description は英語、出力内容・`log()`・カテゴリ enum 値は日本語。`TAIL_NOTE` による日本語出力 + `nowJst`〔`%Y-%m-%d %H:%M:%S`〕指示、`args.startedAt` の開始ログ、`lastJst` 導出のラウンド開始 / judge 起動ログ、ラウンド終了時の指摘・採用内訳ログ〔件数上限つき〕）
-> - **Opus 抑制ノート（`RESTRAINT_NOTE`）**（Opus 5 プロンプトガイド準拠）: `model: 'opus'` の全 `agent()` プロンプト末尾（`TAIL_NOTE` の直前）に共通の英語抑制ノートを付す — サブエージェント起動・委任の禁止（検証目的含む。自分のツールコールで完結）／手順に無い追加検証パスの禁止／依頼スコープの維持／出力・書き出しファイルの簡潔化（filler・冗長サマリ・boilerplate の禁止）。sonnet 役（QA・probe-cleanup・雛形 C の監査役 / Breaker）には付けない
+> - **Opus 抑制ノート（`RESTRAINT_NOTE`）**（Opus 5 プロンプトガイド準拠）: `model: 'opus'` の全 `agent()` と、`reviewModel` で opus / sonnet を切り替えるレビュー役（レビュワー / Breaker / Judge。プロンプトがラウンド共通のため sonnet ラウンドにも付く — 内容は sonnet にも無害）のプロンプト末尾（`TAIL_NOTE` の直前）に共通の英語抑制ノートを付す — サブエージェント起動・委任の禁止（検証目的含む。自分のツールコールで完結）／手順に無い追加検証パスの禁止／依頼スコープの維持／出力・書き出しファイルの簡潔化（filler・冗長サマリ・boilerplate の禁止）。sonnet 役（QA・probe-cleanup・雛形 C の監査役 / Breaker）には付けない
 >
 > plan 側はレビュー対象が計画テキスト（diff ではない）で、コード検証用の機構（反例テスト・probe 命名の不変条件・QA / 最終 QA・probe 後始末等）を持たない点が意図的に異なる（差分スコープは「plan-editor の採用計画修正が触れた計画節＋影響領域」に読み替える。Breaker のフィールド名は resolve = `counterexamples` / plan = `scenarios`）。
 >
@@ -739,7 +741,7 @@ return { converged, status, records, finalQa, specQuestions: uniqueSpecQuestions
 
 ## 雛形 C: codex 敵対モードの Breaker（sir-codex-breaker）
 
-codex 敵対モード（--codex-advs-review-loop / セキュリティ自動発動）のラウンドで、Judge（Codex）に渡す反例を独立 Sonnet エージェントが生成する。1 ラウンド 1 起動。
+codex 敵対モード（--codex-advs-review-loop / セキュリティ自動発動）のラウンドで、Judge（Codex）に渡す反例を独立 Sonnet エージェントが生成する。1 ラウンド 1 起動。監査役・Breaker の effort は `high`（Sonnet 5.5 は effort が再較正されており、公式ガイドが `max` を「評価で品質向上が確認できた場合のみ」としているため。発見役を high とする Issue #134 とも揃える。Issue #142）。
 
 `args`: `{ workDir, issueNumber, branch, defaultBranch, round, priorSummary, securityAudit, securityReason, startedAt }`（`securityAudit` はセキュリティ自動発動時のラウンド 1 のみ true。`securityReason`: 自動発動の理由〔検出したシグナル〕。監査役プロンプトに埋め込まれるため `securityAudit: true` のときは必ず渡す。`startedAt`: 起動直前に実測した開始日時〔開始ログ表示専用・省略可〕）
 
@@ -806,7 +808,7 @@ if (args.securityAudit) {
 4. Write them to ${args.workDir}/security-audit.md.
 Reason for auto-activation: ${args.securityReason}
 Constraints: do not modify repository source files (writing security-audit.md is allowed). Do not commit or push. Final output: put the gist of the attack scenarios (within 15 lines) into summary. ${TAIL_NOTE}`,
-    { label: 'security:audit', phase: 'Audit', model: 'sonnet', effort: 'max', schema: AUDIT_SCHEMA })
+    { label: 'security:audit', phase: 'Audit', model: 'sonnet', effort: 'high', schema: AUDIT_SCHEMA })
   if (audit) {
     auditNote = `\n## Security-audit perspectives (must be reflected in your attack scenarios)\n${audit.summary}\nDetails: ${args.workDir}/security-audit.md\n`
     lastJst = audit.nowJst || lastJst
@@ -837,7 +839,7 @@ ${args.priorSummary ? `\n## Prior rounds\n${args.priorSummary}\n` : ''}${auditNo
 - Write the counterexample list (scenario, evidence, test execution results) to ${args.workDir}/breaker-round-${args.round}.md.
 - Return the same content in the structured output counterexamples.
 Constraints: no code changes other than probe tests. Do not commit. ${TAIL_NOTE}`,
-  { label: 'breaker:r' + args.round, phase: 'Break', model: 'sonnet', effort: 'max', schema: BREAK_SCHEMA })
+  { label: 'breaker:r' + args.round, phase: 'Break', model: 'sonnet', effort: 'high', schema: BREAK_SCHEMA })
 if (breaker === null) return { status: 'agent-failed' }
 lastJst = breaker.nowJst || lastJst
 log(`[${breaker.nowJst} JST] breaker r${args.round} 完了（反例${breaker.counterexamples.length}件）`)
