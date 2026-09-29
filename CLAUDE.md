@@ -58,7 +58,7 @@ Claude Code / Codex / Cursor / Gemini など各種エージェント用のスキ
 ## 記述ルール
 
 - ファイルパスにユーザー名を含めない。ホームディレクトリは `/Users/<name>/` ではなく `~/` で表記する（SKILL.md・コメント・ドキュメント・コミットメッセージ・PR 本文のいずれも同様）
-- **本リポジトリは public**。`dotfiles/claude/`（`~/.claude/` のミラー）に社内・非公開の情報（社内プロキシのホスト名、非公開リポジトリのパス、社内 plugin marketplace 名など）を入れない。ミラーを手で編集するときも同じ。`global-config-pull` はパス正規化・非公開 marketplace のサニタイズ・秘密情報チェックでこれを担保する（除外対象の marketplace 名はリポジトリに書かず、ローカル限定の `~/.claude/.config-sync-exclude` に置く）
+- **本リポジトリは public**。`dotfiles/claude/`（`~/.claude/` のミラー）に社内・非公開の情報（社内プロキシのホスト名、非公開リポジトリのパス、社内 plugin marketplace 名など）を入れない。ミラーを手で編集するときも同じ。`global-config-pull` はパス正規化・非公開 marketplace のサニタイズ・秘密情報チェックでこれを担保する（除外対象の marketplace 名はリポジトリに書かず、ローカル限定の `~/.claude/.config-sync-exclude` に置く）。公開しない指示本文は `~/.claude/private/` に置いて `~/.claude/CLAUDE.md` から `@` import する（`private/` は同期対象外で、ミラーには import 行だけが載る）
 - 実装ノートは `docs/implementation-notes/YYYY-MM-DD-<タスクスラグ>.md` に作成し、変更と同じ PR でコミットする。ルート直下に `implementation-notes.md` を残さない（誤コミット防止のため .gitignore で除外済み）
 - 設計スペックは `docs/specs/YYYY-MM-DD-<タスクスラグ>-design.md` にコミットする。`docs/superpowers/`（brainstorming / writing-plans の作業成果物置き場）は gitignore 対象のため恒久ドキュメントを置かない
 
