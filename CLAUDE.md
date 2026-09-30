@@ -151,6 +151,9 @@ dotfiles/                        # ホストマシンのグローバル設定（
     agents/                      # カスタムエージェント定義（コンテキスト隔離監査用の code-reviewer / security-auditor）
     .mcp.json                    # グローバル MCP サーバー定義（秘密情報は置かない）
 docs/                            # 設計・移行ドキュメント（migration-npx-skills.md、empirical-tuning/、implementation-notes/〔実装ノートのアーカイブ〕等）
+.claude/                         # プロジェクト設定（チーム共有）
+  settings.json                  # hooks の登録（PostToolUse: npx skills add 後の SKILL.md 安全チェック）
+  hooks/skill-safety-check.sh    # 新しく入った SKILL.md の危険パターン検出（~/.agents/skills と プロジェクトの .agents/skills を走査）
 ```
 
 `skills/<skill>/` が配布 skill の唯一の正本（直接編集）。skill 名はリポジトリ全体で一意。スキルの説明・使用例・前提条件は各 `skills/<skill>/README.md` に書く（npx install でスキルと一緒に配布される）。旧 `packages/`（グループ README）は per-skill README と重複・陳腐化したため v2.0.2 で解体済み。
