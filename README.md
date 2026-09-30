@@ -13,6 +13,7 @@ Claude Code / Codex / Cursor / Gemini など各種エージェント用のスキ
 | Git ワークフロー | [smart-issue-resolve](skills/smart-issue-resolve/), [smart-issue-plan](skills/smart-issue-plan/), [smart-spec-to-pr](skills/smart-spec-to-pr/), [smart-commit](skills/smart-commit/), [smart-pr](skills/smart-pr/), [smart-review](skills/smart-review/), [smart-review-apply](skills/smart-review-apply/), [smart-git-sync](skills/smart-git-sync/) |
 | スキル品質改善・環境構成レビュー | [skill-improver](skills/skill-improver/), [empirical-prompt-tuning](skills/empirical-prompt-tuning/), [claude-code-update-review](skills/claude-code-update-review/) |
 | コード開発ライフサイクル | [software-architect](skills/software-architect/), [code-reviewer](skills/code-reviewer/), [code-reviewer-adversarial](skills/code-reviewer-adversarial/), [security-auditor](skills/security-auditor/), [branch-visualize](skills/branch-visualize/), [structure-visualize](skills/structure-visualize/), [tech-doc-structuring](skills/tech-doc-structuring/) |
+| ドキュメント作成 | [human-facing-doc-writing](skills/human-facing-doc-writing/) |
 | 事業企画 | [business-ideation](skills/business-ideation/) |
 | デザイン | [game-ui-design](skills/game-ui-design/) |
 | システムメンテナンス | [disk-space-cleanup](skills/disk-space-cleanup/) |
