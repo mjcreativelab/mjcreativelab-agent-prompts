@@ -146,7 +146,7 @@ dotfiles/                        # ホストマシンのグローバル設定（
     CLAUDE.md                    # グローバル Claude Code 指示ファイル
     settings.json                # グローバル設定（hooks・permissions・statusLine・plugins 等）
     statusline-command.sh        # ステータスライン表示スクリプト
-    rules/                       # CLAUDE.md から条件読み込みされる外部参照ルール（ふるまい・開発判断ガイドライン）
+    rules/                       # 全セッションで自動的に読み込まれるユーザールール（ふるまい・開発判断ガイドライン）
     hooks/                       # settings.json の hooks から呼ばれるスクリプト（PreCompact 状態保存・Stop 検証チェック）
     agents/                      # カスタムエージェント定義（コンテキスト隔離監査用の code-reviewer / security-auditor）
     .mcp.json                    # グローバル MCP サーバー定義（秘密情報は置かない）

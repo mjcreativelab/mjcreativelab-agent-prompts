@@ -4,13 +4,11 @@
 - Important: Think in English, interact with the user in Japanese.（思考は英語で行い、ユーザーとの対話・出力は日本語で行うこと）
 - 回答は常に日本語で行うこと（コード・コマンド・技術用語はそのままでOK）
 
-## Claude 標準ふるまいガイドライン（Opus / Sonnet 時のみ）
-- 環境コンテキストの「You are powered by the model named ...」で自分のモデルを判定し、**Opus または Sonnet 系のときに限り**、セッション開始時に `~/.claude/rules/claude-behavior-guidelines.md` を読み込み、その内容（product information / refusal handling / tone / user wellbeing / evenhandedness 等）を最終的なふるまい指針として遵守すること
-- **Opus / Sonnet 以外のモデル（Haiku / Fable 等）はこのファイルを読み込まない**（トークン節約のため参照不要）。上記ファイルへ自発的にアクセスしないこと
+## Claude 標準ふるまいガイドライン
+- `~/.claude/rules/claude-behavior-guidelines.md` は `rules/` 配下のため、モデルを問わず全セッションの開始時に自動で読み込まれる。その内容（product information / refusal handling / tone / user wellbeing / evenhandedness 等）を最終的なふるまい指針として遵守すること
 
-## Fable 相当の開発判断ガイドライン（Opus / Sonnet 時のみ）
-- 環境コンテキストの「You are powered by the model named ...」で自分のモデルを判定し、**Opus または Sonnet 系のときに限り**、セッション開始時に `~/.claude/rules/fable-engineering-judgment.md` を読み込み、プログラム開発における思考・判断・検証・報告の規律（デバッグの認識論 / 検証してから主張する / テストの完全性 / 不確実性の申告 等）として遵守すること
-- **Opus / Sonnet 以外のモデル（Haiku / Fable 等）はこのファイルを読み込まない**（Fable は標準挙動と同内容のため冗長、Haiku はトークン節約のため参照不要）。上記ファイルへ自発的にアクセスしないこと
+## Fable 相当の開発判断ガイドライン
+- `~/.claude/rules/fable-engineering-judgment.md` は `rules/` 配下のため、モデルを問わず全セッションの開始時に自動で読み込まれる。プログラム開発における思考・判断・検証・報告の規律（デバッグの認識論 / 検証してから主張する / テストの完全性 / 不確実性の申告 等）として遵守すること
 
 ## 検証強制 Hook / 思考深度
 - Stop hook `~/.claude/hooks/verify-before-claim.sh`（settings.json の hooks.Stop に登録済み）が「コード編集後、検証コマンドの実行記録なしに完了・修正済みを主張して終了する」ターンを差し戻す。差し戻されたら検証を実行するか「未検証」と明記して報告し直すこと（強制は 1 stop につき 1 回のみ。モデル問わず有効）
@@ -137,7 +135,7 @@ LLM コーディングの典型的ミスを減らす行動原則。慎重さ優�
 
 ## Context7 MCP
 - ライブラリ・フレームワーク・SDK・API・CLI ツール・クラウドサービスに関する質問やコーディング作業では、Context7 MCP で最新ドキュメントを参照すること
-- 使用前に必ず `ToolSearch` でスキーマをロードする: `select:mcp__claude_ai_Context7__resolve-library-id,mcp__claude_ai_Context7__query-docs`
+- 使用前に `ToolSearch` でスキーマをロードする（`context7` で検索し、出現しているほうを使う: プラグイン版 `mcp__plugin_context7_context7__*` またはコネクタ版 `mcp__claude_ai_Context7__*`）
 - 手順: `resolve-library-id` でライブラリ ID を取得 → `query-docs` でドキュメントを取得
 - React・Next.js・FastAPI・Tailwind など既知のライブラリでも参照する（学習データが古い可能性があるため）
 - リファクタリング・ビジネスロジック・一般的なプログラミング概念には使わない
@@ -236,7 +234,7 @@ LLM コーディングの典型的ミスを減らす行動原則。慎重さ優�
 - **通常は skills を使う**: `/software-architect`、`/code-reviewer`、`/security-auditor`（会話コンテキストを活用）
 - **独立監査が必要な場合のみ agents を使う**: `code-reviewer`、`security-auditor`（コンテキスト隔離・バイアス排除）
 - `software-architect` は常に会話コンテキストが必要なため skills のみ（agent なし）
-- 実装は skills / agents いずれも使わず、Codex は `codex:rescue` スキルで直接呼ぶ
+- 実装にはレビュー・設計用の skills / agents を使わず、Codex を `codex:rescue` スキルで直接呼ぶ
 
 ### 運用上の注意
 - **Codex の横断影響の制約**: Codex は渡されたタスク範囲内で動き、`.claude/` 配下（skills・agents・rules）や他ドメインの連動更新を自発的に行わない。これがタスク特性による振り分けの根拠
@@ -246,4 +244,4 @@ LLM コーディングの典型的ミスを減らす行動原則。慎重さ優�
 - **Codex silent death からの復旧（resume が最効率）**: stall 確定後、transcript 末尾が `reasoning` / `function_call` で途切れていたら未完。companion の cancel（`/codex:cancel`）で stale ジョブを落とす → `task-resume-candidate` が `available: true` に復活 → `--resume` 付きで再投入する（コンテキストを引き継いで続きから実行されるため fresh 再実行より大幅に速い）。復旧 2 回で完了しなければ fresh または手動回収に切り替える
 - **Codex silent death の予防**: companion を Bash で直接起動する経路では timeout を 600000ms（10 分）に明示する（デフォルト 120 秒では長いレビューが親側から切られる）。長時間が見込まれるタスクは `--background` 実行でプロセスのライフサイクルを呼び出し元の Bash から切り離すことを検討する
 - **`codex:rescue` サブエージェントの Bash 許可が relay 拒否されるとき**: companion `task` を呼ぶサブエージェントの Bash が許可ゲートで止まり、承認要求テキストを返して終了することがある（SendMessage 不在で継続不可）。回避は **main ループから companion を直接実行**: `node "<plugin>/codex-companion.mjs" task "$(cat /tmp/prompt.md)"`（Bash tool の timeout を 600000 に明示。プロンプトは `"$(cat file)"` で渡すとバッククォート・特殊文字がリテラル保持される）。companion は Codex を同期実行しレビュー結果を inline 返却する。ループ各ラウンドは fresh thread で `task` を都度呼べばよい
-- **`smart-commit` / `smart-pr` は `disable-model-invocation`**: Skill ツール（モデル発火）からは呼べず `cannot be used with Skill tool due to disable-model-invocation` で失敗する。`smart-issue-resolve --codex-review-loop` / `--codex-advs-review-loop`（旧 `-codex-loop`）等が「収束後にコミット/PR を自動実行」する局面では、`git` / `gh` で直接コミット・PR する（プロジェクトの git-conventions ＝ conventional commit・closing keyword 不使用・作成者アサインに従う）。ユーザーが手動で `/smart-commit` `/smart-pr` を打つ経路は従来どおり有効
+- **`smart-commit` / `smart-pr` は `disable-model-invocation`**: Skill ツール（モデル発火）からは呼べず `cannot be used with Skill tool due to disable-model-invocation` で失敗する。`smart-issue-resolve --codex-review-loop` / `--codex-advs-review-loop` 等が「収束後にコミット/PR を自動実行」する局面では、`git` / `gh` で直接コミット・PR する（conventional commit・closing keyword の扱い・作成者アサインなど、プロジェクトの git 規約に従う）。ユーザーが手動で `/smart-commit` `/smart-pr` を打つ経路は従来どおり有効
