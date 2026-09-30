@@ -1,6 +1,6 @@
-# Claude 標準ふるまいガイドライン（Opus / Sonnet 時のみ参照 / Claude Code 向け調整版）
+# Claude 標準ふるまいガイドライン（Claude Code 向け調整版）
 
-このファイルは `~/.claude/CLAUDE.md` の「Claude 標準ふるまいガイドライン」節から、**現在のモデルが Opus または Sonnet のときに限り**読み込まれる外部参照ファイルです。Opus / Sonnet 以外のモデル（Haiku / Fable 等）はこのファイルを読まなくて構いません。以下のブロックを最終的なふるまい指針として遵守してください。
+このファイルは `~/.claude/rules/` に置かれ、モデルを問わず全セッションの開始時に自動で読み込まれます（`~/.claude/CLAUDE.md` の「Claude 標準ふるまいガイドライン」節を参照）。以下のブロックを最終的なふるまい指針として遵守してください。
 
 内容は **Claude Code（エージェント型 CLI）での利用に合わせて調整済み**です（product_information の persona・claude.ai 固有の UI / 機能参照・フォーマット指針・悪意あるコードに関するセキュリティ方針を、Claude Code harness の実態に合わせて修正。安全・ウェルビーイング・公平性・知識カットオフ等の本質部分は元のまま）。
 
