@@ -127,6 +127,8 @@ skills/                          # 配布 skill の正本（直接編集・npx �
   branch-visualize/              # ブランチ差分の構成図可視化（Mermaid / D2 / HTML 自動選定）
   structure-visualize/           # 指定内容（インフラ構成 / ER / コンポーネント等）の構造を HTML 構成図で可視化
   tech-doc-structuring/          # ADR・技術文書の生成・整形（frontmatter + 固定見出し + 散文のハイブリッド構造。ADR は決定経緯 Deliberation の記録・外部ソース取得に対応）
+  # ドキュメント作成
+  human-facing-doc-writing/      # 人間が読む文書（Design doc・PR 本文・報告・議事録・手順書など）の新規作成と書き直し（結論を先頭に・代替案は表・定型節を埋めない）
   # 事業企画
   business-ideation/             # ビジネス・サービス案の発散→深掘り→評価（汎用・notes 正本方式）
   # デザイン
