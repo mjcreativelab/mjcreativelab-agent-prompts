@@ -120,6 +120,9 @@ LLM コーディングの典型的ミスを減らす行動原則。慎重さ優�
 ## Abbreviations
 - 略語・短縮ワードは初出時に正式名称を併記する（例: `CAC（Customer Acquisition Cost）`）。以降は略語のみで可
 
+## Human-facing Docs
+- 人間が読む文書（設計書・PR 本文・Issue・報告書・議事録・手順書など）を書く・書き直すときは `human-facing-doc-writing` スキルを使う（AI 向けの指示文書〔CLAUDE.md / SKILL.md / プロンプト〕は対象外）
+
 ## AGENTS.md
 - AGENTS.md は CLAUDE.md へのシンボリックリンク。AGENTS.md を編集する場合は CLAUDE.md を編集すること
 
@@ -191,6 +194,20 @@ LLM コーディングの典型的ミスを減らす行動原則。慎重さ優�
 - **Codex**: 閉じた実装タスクの自律実行（影響範囲が明確なコード変更）
 - **Cursor**: 横断影響のある実装 + 開発者との対話的作業（skills・設定・複数ファイル連動）
 - **Gemini**: 補助的な観点追加役（セカンドオピニオン・盲点補完）
+
+### Claude モデルの役割分担
+Claude Code の責任範囲の中で、役割ごとに使う Claude モデルを固定する。モデルはエイリアスで指定し、バージョン付き ID で固定しない（エイリアスは常に最新版に解決される）。
+
+| 役割 | モデル（エイリアス） | 担当 |
+|---|---|---|
+| 設計・オーケストレーションの指示役 | Opus の最新版（`opus`） | メインセッション（settings.json の `model`）、設計役、計画の作成・編集 |
+| 指示に従った実装 | Sonnet の最新版（`sonnet`） | 実装・修正を担うサブエージェント / Workflow エージェント（レビュー指摘の反映を含む） |
+| 監視・レビュー | Fable の最新版（`fable`） | レビュワー・Breaker・Judge・独立 QA・セキュリティ監査、advisor（settings.json の `advisorModel`） |
+
+- サブエージェント（Agent ツール）や Workflow の `agent()` で役割を分けて起動するときは、上表に従って `model` を明示する（省略するとメインセッションのモデルを継承する）
+- `smart-issue-plan`（プラン系）と `smart-issue-resolve`（実装系）の役割別エージェントは、この配分で固定済み
+- メインセッション内で skill として行うレビュー（`/code-reviewer` 等）はメインセッションのモデルで動く。Fable にレビューさせたいときは、隔離エージェント（Agent ツール / Workflow）として `model: fable` で起動する
+- ツール間の振り分け（Codex / Cursor / Gemini）は本節と独立で、従来どおり（閉じた実装タスクは Codex に振る）
 
 ### フェーズ別役割
 
