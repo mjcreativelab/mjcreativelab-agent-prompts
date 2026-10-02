@@ -52,7 +52,7 @@ smart-issue-resolve の実装・レビューを担う役割別エージェント
 | `context.md` | オーケストレーター | 全エージェント |
 | `gen-diff.sh` | オーケストレーター（本スキルの `assets/gen-diff.sh` をコピー） | 開発者（雛形 B の fix が再生成に実行する） |
 | `diff.md` | オーケストレーター（雛形 B の各セット起動前）/ 開発者（雛形 B のラウンド境界） | 雛形 B のレビュワー・Breaker・Judge（**独立 QA は読まない**） |
-| `design.md` | 設計役 | 開発者・設計役（事後レビュー） |
+| `design.md` | 設計役 | 開発者・設計レビュー役（事後レビュー） |
 | `impl-notes.md` | 開発者 | 開発者（修正時）・オーケストレーター |
 | `security-audit.md` | Breaker レンズ S（claude 系・監査ラウンド）/ セキュリティ監査役（codex 系） | Breaker |
 | `breaker-round-<N>[-<lens>].md` | Breaker（claude 系はレンズ別に `-<lens>` 付き〔包括ラウンド。単発ラウンドは `-all`〕・codex 系は単一） | Judge（codex 系では Codex） |
@@ -87,7 +87,7 @@ export const meta = {
   description: 'smart-issue-resolve 実装フェーズ（設計→実装→独立QA→設計整合・保守可用性レビュー）',
   phases: [
     { title: 'Design', detail: '設計方針の確定（計画が無い/粗い場合のみ）' },
-    { title: 'Implement', detail: 'Opus 開発エージェントによる実装' },
+    { title: 'Implement', detail: 'Sonnet 開発エージェントによる実装' },
     { title: 'QA', detail: '独立エージェントによるテスト・受け入れ基準検証' },
     { title: 'ArchReview', detail: '設計整合・保守性・可用性レビューと反映' },
   ],
@@ -186,7 +186,7 @@ const qaPrompt = (extra) => `You are an independent QA agent. Do not trust the d
 4. Verify each acceptance criterion of the Issue, one by one, against the code and execution results.
 5. If any throwaway test whose filename contains .breaker-probe. remains in the change set, report it in issues.
 Constraints: do not modify code or files. Do not commit or push. ${extra}
-Verdict: set pass=true only when all tests pass and the acceptance criteria are met. Put the executed commands and a result summary into executed, and list problems in issues. ${TAIL_NOTE}`
+Verdict: set pass=true only when all tests pass and the acceptance criteria are met. Put the executed commands and a result summary into executed, and list problems in issues. ${RESTRAINT_NOTE} ${TAIL_NOTE}`
 
 const logQaIssues = (qaResult) => {
   if (qaResult.pass) return
@@ -218,12 +218,12 @@ const impl = await agent(`You are the developer implementing GitHub Issue #${arg
 5. Re-run the same test scope and confirm no existing tests broke and the new requirements are met.
 6. Write to ${notes}: 変更ファイル / 要件対応（受け入れ基準ごと） / 自分で判断した事項 / テスト結果（ベースライン比較）.
 Constraints: do not commit or push. Do not mix in changes unrelated to the Issue. ${RESTRAINT_NOTE} ${TAIL_NOTE}`,
-  { label: 'dev:implement', phase: 'Implement', model: 'opus', effort: 'max', schema: IMPL_SCHEMA })
+  { label: 'dev:implement', phase: 'Implement', model: 'sonnet', effort: 'high', schema: IMPL_SCHEMA })
 if (impl === null) return { status: 'agent-failed', at: 'implement' }
 lastJst = impl.nowJst || lastJst
 log(`[${impl.nowJst} JST] Implement 完了`)
 
-let qa = await agent(qaPrompt(''), { label: 'qa:verify', phase: 'QA', model: 'sonnet', effort: 'high', schema: QA_SCHEMA })
+let qa = await agent(qaPrompt(''), { label: 'qa:verify', phase: 'QA', model: 'fable', effort: 'high', schema: QA_SCHEMA })
 if (qa === null) return { status: 'agent-failed', at: 'qa' }
 lastJst = qa.nowJst || lastJst
 log(`[${qa.nowJst} JST] QA 完了（pass=${qa.pass}${qa.pass ? '' : `・指摘${qa.issues.length}件`}）`)
@@ -240,11 +240,11 @@ ${JSON.stringify(qa.issues, null, 2)}
 3. Re-run the relevant-scope tests.
 4. Update ${notes}.
 Constraints: do not commit or push. ${RESTRAINT_NOTE} ${TAIL_NOTE}`,
-    { label: 'dev:qa-fix-' + qaFixRounds, phase: 'QA', model: 'opus', effort: 'max', schema: FIX_SCHEMA })
+    { label: 'dev:qa-fix-' + qaFixRounds, phase: 'QA', model: 'sonnet', effort: 'high', schema: FIX_SCHEMA })
   if (fix === null) return { status: 'agent-failed', at: 'qa-fix' }
   lastJst = fix.nowJst || lastJst
   log(`[${fix.nowJst} JST] QA修正${qaFixRounds}回目 完了（採用${fix.adopted.length}件）`)
-  qa = await agent(qaPrompt('This is re-verification after the developer addressed the previous QA findings.'), { label: 'qa:re-verify-' + qaFixRounds, phase: 'QA', model: 'sonnet', effort: 'high', schema: QA_SCHEMA })
+  qa = await agent(qaPrompt('This is re-verification after the developer addressed the previous QA findings.'), { label: 'qa:re-verify-' + qaFixRounds, phase: 'QA', model: 'fable', effort: 'high', schema: QA_SCHEMA })
   if (qa === null) return { status: 'agent-failed', at: 'qa' }
   lastJst = qa.nowJst || lastJst
   log(`[${qa.nowJst} JST] QA再検証${qaFixRounds}回目 完了（pass=${qa.pass}${qa.pass ? '' : `・指摘${qa.issues.length}件`}）`)
@@ -260,7 +260,7 @@ const arch = await agent(`You are the designer. Review the completed change for 
    - Maintainability: excessive coupling, reduced testability, wide change ripple, unnecessary abstraction
    - Availability / operations: missing timeouts / retries, behavior on failure or dependency degradation, resource exhaustion, missing observability (logs / metrics), fragile deploy / rollback
 Constraints: do not modify code. Do not commit or push. Readability, naming, and style are out of scope. Attach evidence (file, line) and severity to each finding. If there are no findings, return an empty items array. ${RESTRAINT_NOTE} ${TAIL_NOTE}`,
-  { label: 'architect:review', phase: 'ArchReview', model: 'opus', effort: 'max', schema: FINDINGS_SCHEMA })
+  { label: 'architect:review', phase: 'ArchReview', model: 'fable', effort: 'max', schema: FINDINGS_SCHEMA })
 if (arch === null) return { status: 'agent-failed', at: 'arch-review' }
 lastJst = arch.nowJst || lastJst
 log(`[${arch.nowJst} JST] ArchReview 完了（指摘${arch.items.length}件）`)
@@ -277,12 +277,12 @@ ${JSON.stringify(arch.items, null, 2)}
 2. Fix the adopted findings and re-run the relevant-scope tests.
 3. Update ${notes}.
 Constraints: do not commit or push. ${RESTRAINT_NOTE} ${TAIL_NOTE}`,
-    { label: 'dev:arch-fix', phase: 'ArchReview', model: 'opus', effort: 'max', schema: FIX_SCHEMA })
+    { label: 'dev:arch-fix', phase: 'ArchReview', model: 'sonnet', effort: 'high', schema: FIX_SCHEMA })
   if (archFix === null) return { status: 'agent-failed', at: 'arch-fix' }
   lastJst = archFix.nowJst || lastJst
   log(`[${archFix.nowJst} JST] ArchFix 完了（採用${archFix.adopted.length}件・不採用${archFix.rejected.length}件）`)
   if (archFix.adopted.length > 0) {
-    qa = await agent(qaPrompt('This is re-verification after the design-conformance review was applied.'), { label: 'qa:post-arch', phase: 'ArchReview', model: 'sonnet', effort: 'high', schema: QA_SCHEMA })
+    qa = await agent(qaPrompt('This is re-verification after the design-conformance review was applied.'), { label: 'qa:post-arch', phase: 'ArchReview', model: 'fable', effort: 'high', schema: QA_SCHEMA })
     if (qa === null) return { status: 'agent-failed', at: 'qa' }
     lastJst = qa.nowJst || lastJst
     log(`[${qa.nowJst} JST] QA(post-arch) 完了（pass=${qa.pass}${qa.pass ? '' : `・指摘${qa.issues.length}件`}）`)
@@ -308,7 +308,7 @@ export const meta = {
   name: 'sir-claude-review-set',
   description: 'smart-issue-resolve claude 系レビューループ 1 セット（最大 3 ラウンド + 収束時の最終 QA）',
   phases: [
-    { title: 'Review', detail: '包括ラウンド（初回セット round 1）は Breaker レンズ S/C/O（敵対）/ レビュワー観点グループ G1/G2/G3（標準）の並列、以降のラウンドは単発 1 体（全観点横断）。敵対は続けて Judge バッチ並列裁定。レンズ S は初回セット round 1 でセキュリティ監査を内蔵。モデルは包括ラウンドのみ opus・以降は sonnet' },
+    { title: 'Review', detail: '包括ラウンド（初回セット round 1）は Breaker レンズ S/C/O（敵対）/ レビュワー観点グループ G1/G2/G3（標準）の並列、以降のラウンドは単発 1 体（全観点横断）。敵対は続けて Judge バッチ並列裁定。レンズ S は初回セット round 1 でセキュリティ監査を内蔵。モデルは全ラウンド fable' },
     { title: 'Fix', detail: '開発者エージェントによる採用判定・修正・テスト' },
     { title: 'FinalQA', detail: '収束時の独立最終検証' },
   ],
@@ -568,7 +568,7 @@ const qaPrompt = () => `You are an independent QA agent performing the final ver
 4. Verify each acceptance criterion of the Issue, one by one.
 5. If any file containing .breaker-probe. remains in the change set, report it in issues.
 Constraints: do not modify code or files. Do not commit.
-Verdict: set pass=true only when all tests pass and the acceptance criteria are met. ${TAIL_NOTE}`
+Verdict: set pass=true only when all tests pass and the acceptance criteria are met. ${RESTRAINT_NOTE} ${TAIL_NOTE}`
 
 // セキュリティ監査はレンズ S の Breaker に統合済み（securityAudit 初回セット round 1 で STRIDE 監査 → security-audit.md 書き出し → セキュリティ break を 1 エージェントで実施）。独立の前段監査スロットは持たない。auditFailed はレンズ S が監査を書き出せなかった場合に立てる
 let auditFailed = false
@@ -591,8 +591,8 @@ for (let i = 0; i < 3; i++) {
   const delta = isConfirmRound ? '' : fixDelta(i)
   // 分割並列は包括ラウンド（初回セット round 1）限定。差分スコープのラウンド 2+・確認ラウンド・継続セットは単発 1 体（全観点横断）で実施する（Issue #113: トークン・ストール露出の抑制）
   const comprehensive = args.startRound === 1 && i === 0 && !isConfirmRound
-  // レビュー役（レビュワー / Breaker / Judge）のモデルは包括ラウンドのみ opus（広範囲・判断重視）、以降の繰り返しラウンドは sonnet（定義の明確な反復レビュー）。Judge も同じ規則に従う — dismissed は fix に届かず誤棄却が無音の見落としになるため、反例が集中する包括ラウンドの裁定は opus を維持する（Issue #142）
-  const reviewModel = comprehensive ? 'opus' : 'sonnet'
+  // レビュー役（レビュワー / Breaker / Judge）のモデル。監視・レビューは Fable が担うため、包括ラウンドと以降のラウンドで区別せず全ラウンド fable
+  const reviewModel = 'fable'
   const launchDesc = args.mode === 'adversarial'
     ? `Breaker ${comprehensive ? '3 レンズ（S/C/O）並列' : '単発 1 体'}（${reviewModel}）`
     : `レビュワー ${comprehensive ? '3 グループ（G1/G2/G3）並列' : '単発 1 体'}（${reviewModel}）`
@@ -657,7 +657,7 @@ for (let i = 0; i < 3; i++) {
     records.push({ round, findings: findings.items.length, adopted: 0, rejected: [], dismissed: (findings.dismissed || []).length })
     clean = true
   } else {
-    const fix = await agent(fixPrompt(round, trueDefects), { label: `dev:fix-r${round}`, phase: 'Fix', model: 'opus', effort: 'max', schema: FIX_SCHEMA })
+    const fix = await agent(fixPrompt(round, trueDefects), { label: `dev:fix-r${round}`, phase: 'Fix', model: 'sonnet', effort: 'high', schema: FIX_SCHEMA })
     // fix を起動した時点で diff.md は次ラウンド用に再生成されているべき。成否・自己申告によらず期待スタンプを進める
     // （再生成漏れは次ラウンドでスタンプ不一致となり、各レビュー役が自前の git 取得へフォールバックする ＝ 安全側）
     diffRound = round + 1
@@ -690,7 +690,7 @@ if (converged) {
     await agent(`If any files whose names contain .breaker-probe. remain in the current change set (check via git status / git diff), delete them all. Regression tests for adopted defects were already renamed by the developer, so any file still containing .breaker-probe. in its name is throwaway by definition. Make no other changes. If none remain, do nothing. Do not commit or push. Output language: Japanese.`,
       { label: 'dev:probe-cleanup', phase: 'FinalQA', model: 'sonnet', effort: 'low' })
   }
-  finalQa = await agent(qaPrompt(), { label: 'qa:final', phase: 'FinalQA', model: 'sonnet', effort: 'high', schema: QA_SCHEMA })
+  finalQa = await agent(qaPrompt(), { label: 'qa:final', phase: 'FinalQA', model: 'fable', effort: 'high', schema: QA_SCHEMA })
   if (finalQa === null) { status = 'agent-failed' } else {
     lastJst = finalQa.nowJst || lastJst
     log(`[${finalQa.nowJst} JST] FinalQA 完了（pass=${finalQa.pass}${finalQa.pass ? '' : `・指摘${finalQa.issues.length}件`}）`)
@@ -722,12 +722,12 @@ return { converged, status, records, finalQa, specQuestions: uniqueSpecQuestions
 > - **Breaker のレンズ分割並列化（包括ラウンド限定）**（攻撃観点を S/C/O の 3 レンズに分割し `LENSES` 定義 + フラット `parallel` で同時起動。union = 現行 Breaker の全観点で内容は不変。一部レンズ失敗は `breakerDegraded` で伝播。分割は包括ラウンド〔初回セット round 1〕限定で、差分スコープのラウンド 2+・確認ラウンド・継続セットは単発 Breaker〔`LENS_ALL` = `LENSES` の aspects 結合で union 不変を構造的に保証・probe トークン `all-`〕1 体で実施する — Issue #113）
 > - **標準レビュワーのグループ分割並列化（包括ラウンド限定）**（標準モードのレビュワーを観点別グループ G1/G2/G3 の 3 グループに分割し `REVIEWER_GROUPS` 定義 + フラット `parallel` で同時起動。union = 現行の全 9 観点で内容は不変。Judge 段は無く各グループの `items` を単純結合し、グループ間の重複指摘は fix / plan-editor の採用判定で統合する〔敵対レンズ重複と同じ扱い〕。一部グループ失敗は `reviewerDegraded` で伝播。分割は包括ラウンド〔初回セット round 1〕限定で、以降は単発レビュワー〔`REVIEWER_ALL` = `REVIEWER_GROUPS` の aspects 結合で union 不変を構造的に保証〕1 体で実施する — Issue #113）
 > - **dry-twice 収束判定（重大度フロア。Issue #134）**（「指摘 0 / 真の欠陥 0〔仕様未定のみ〕/ **High/Medium の採用 0**〔`FIX_SCHEMA.adopted[].severity` の echo で判定。Low のみの採用は修正・テスト済みのままクリーン扱い＝軽微修正で収束をリセットしない。`records[].adoptedMajor` に High/Medium 採用数を保持〕」を統一的に「クリーン」とし、連続 2 回〔`cleanStreak >= 2`〕で収束する。1 回目クリーン後の確認ラウンドは差分スコープを解除〔`delta = ''`〕した fresh エージェントで再検証する。`cleanStreak` を `args` と返却で引き継ぎ、`cleanStreak: 1` のまま 3 ラウンド上限に達したケースはセット境界を跨いで連続 2 クリーンを成立させる）
-> - **レビュー役のモデル配分（包括ラウンドのみ opus・以降は sonnet）**（標準レビュワー・Breaker・Judge バッチのモデルは `comprehensive` に追従する `reviewModel` で決まる: 包括ラウンド〔初回セット round 1 のグループ G1/G2/G3・レンズ S/C/O〈S の監査統合を含む〉と、その Judge バッチ〕は `'opus'`、差分スコープのラウンド 2+・確認ラウンド・継続セット〔単発レビュワー / 単発 Breaker と、その Judge バッチ〕は `'sonnet'`。Issue #111 で一律 opus 化した後、Sonnet 5.5 のモデル選定ガイド〔繰り返し実行する定義の明確なレビューは Sonnet、慎重な判断を要する複雑な作業は Opus〕に基づき Issue #142 で再配分した。Judge も同じ規則に従う〔`dismissed` は fix に届かず誤棄却が無音の見落としになるため、反例が集中する包括ラウンドの裁定は opus を維持〕。`sonnet` エイリアスが Sonnet 5.5 に解決されるのは Claude Code v2.1.284 以降。QA・probe-cleanup は検証・掃除役のため sonnet〔対象外〕。fix / dev は opus。Judge バッチの `effort` は `'high'`〔上記の Issue #113 戻し〕。発見役〔レビュワー / Breaker〕の `effort` は Issue #134 で `'max'` → `'high'` に降格 — Opus 5 プロンプトガイド「レビュー精度は低 effort でも維持され、effort が主なコスト・時間レバー」。fix / dev は編集役のため `'max'` 維持）
+> - **役割別モデル配分（設計・指示 = opus / 実装 = sonnet / 監視・レビュー = fable）**（標準レビュワー・Breaker・Judge バッチのモデルは `reviewModel` = `'fable'` で、包括ラウンドと以降のラウンドを区別しない〔Issue #142 の「包括ラウンドのみ opus・以降は sonnet」配分を置き換えた。切り戻しのレバーは `reviewModel` の 1 行〕。独立 QA〔`qa:*`〕と設計整合レビュー〔`architect:review`〕も監視・レビュー役として `'fable'`、開発者〔`dev:implement` / `dev:qa-fix-*` / `dev:arch-fix` / `dev:fix-r*`〕は指示に従う実装役として `'sonnet'`、設計〔`architect:design`〕は `'opus'`、probe-cleanup は `'sonnet'` / `'low'` のまま。effort は役割ごとに据え置く〔Judge バッチ `'high'`＝上記の Issue #113 戻し、発見役〈レビュワー / Breaker〉`'high'`＝Issue #134 で `'max'` から降格 — Opus 5 プロンプトガイド「レビュー精度は低 effort でも維持され、effort が主なコスト・時間レバー」、`architect:review` `'max'`〕。開発者だけは sonnet 化に合わせて `'max'` → `'high'`〔Sonnet 5.5 は effort が再較正されており、公式ガイドが `max` を「評価で品質向上が確認できた場合のみ」とするため〕。plan 側の plan-editor は設計・指示役として `'opus'` / `'max'`）
 > - **セキュリティ監査役のレンズ S 統合**（`securityAudit` 初回セット round 1 でレンズ S が STRIDE 監査 → `security-audit.md` 書き出し → break を 1 エージェントで実施。独立の前段監査スロットは削除。`auditWritten` フラグで「監査のみ失敗」を `auditFailed` として区別）
 > - **差分スコープ化**（`records[].adoptedItems` に採用修正の title/action を保持し、ラウンド 2+ の Breaker/レビュワーを直前ラウンドの修正差分とその波及に重点付けする `fixDelta()`。ラウンド 1 は全 diff 包括レビュー。diff 基準は全体維持で重点付けであり抑制ではない。差分スコープの指示には「前ラウンドの採用修正が追加したコードへの、さらなる強化・磨き込み要求の禁止〔回帰・契約破壊・エッジケース失敗など実欠陥のみ指摘可〕」を含む — 自己増殖チェーンの抑制。Issue #134）
 > - **軽微指摘フィルタ + Low 採用規律（Issue #134）**（レビュワー / Breaker / Judge に「実行時挙動・契約・設計判断を変えない指摘〔識別子 / テスト命名・コメント / docstring / ログ文言・ドキュメント列挙の完全性〕は items / 反例にせず 低優先度」を明示〔文言・列挙の完全性が Issue の成果物そのものであるドキュメント改訂系 Issue は除く〕。fix / plan-editor の Low 採用規律は resolve = 「局所・無リスクの場合のみ採用・最小修正」/ plan = 「原則不採用・採用時も最小編集」と意図的に非対称 — コードの Low 修正は安価で回帰テストに守られるが、計画の Low 反映は計画を太らせ次ラウンドの攻撃面になるため）
 > - **プロンプトの英語化 + 進捗ログ規約（Issue #122）**（`agent()` プロンプト・スキーマ description は英語、出力内容・`log()`・カテゴリ enum 値は日本語。`TAIL_NOTE` による日本語出力 + `nowJst`〔`%Y-%m-%d %H:%M:%S`〕指示、`args.startedAt` の開始ログ、`lastJst` 導出のラウンド開始 / judge 起動ログ、ラウンド終了時の指摘・採用内訳ログ〔件数上限つき〕）
-> - **Opus 抑制ノート（`RESTRAINT_NOTE`）**（Opus 5 プロンプトガイド準拠）: `model: 'opus'` の全 `agent()` と、`reviewModel` で opus / sonnet を切り替えるレビュー役（レビュワー / Breaker / Judge。プロンプトがラウンド共通のため sonnet ラウンドにも付く — 内容は sonnet にも無害）のプロンプト末尾（`TAIL_NOTE` の直前）に共通の英語抑制ノートを付す — サブエージェント起動・委任の禁止（検証目的含む。自分のツールコールで完結）／手順に無い追加検証パスの禁止／依頼スコープの維持／出力・書き出しファイルの簡潔化（filler・冗長サマリ・boilerplate の禁止）。sonnet 役（QA・probe-cleanup・雛形 C の監査役 / Breaker）には付けない
+> - **Opus 抑制ノート（`RESTRAINT_NOTE`）**（Opus 5 プロンプトガイド準拠）: probe-cleanup〔`sonnet` / `low` の機械的な後始末〕を除く全 `agent()` のプロンプト末尾（`TAIL_NOTE` の直前）に共通の英語抑制ノートを付す — サブエージェント起動・委任の禁止（検証目的含む。自分のツールコールで完結）／手順に無い追加検証パスの禁止／依頼スコープの維持／出力・書き出しファイルの簡潔化（filler・冗長サマリ・boilerplate の禁止）。主目的は上位モデル〔opus / fable〕の過剰処理〔サブエージェント多量起動・冗長出力〕の抑制。内容は sonnet の開発者役にも無害なため、付与範囲はモデルではなく役割で決める（fable の QA・雛形 C の監査役 / Breaker にも付く）
 >
 > plan 側はレビュー対象が計画テキスト（diff ではない）で、コード検証用の機構（反例テスト・probe 命名の不変条件・QA / 最終 QA・probe 後始末等）を持たない点が意図的に異なる（差分スコープは「plan-editor の採用計画修正が触れた計画節＋影響領域」に読み替える。Breaker のフィールド名は resolve = `counterexamples` / plan = `scenarios`）。
 >
@@ -741,14 +741,14 @@ return { converged, status, records, finalQa, specQuestions: uniqueSpecQuestions
 
 ## 雛形 C: codex 敵対モードの Breaker（sir-codex-breaker）
 
-codex 敵対モード（--codex-advs-review-loop / セキュリティ自動発動）のラウンドで、Judge（Codex）に渡す反例を独立 Sonnet エージェントが生成する。1 ラウンド 1 起動。監査役・Breaker の effort は `high`（Sonnet 5.5 は effort が再較正されており、公式ガイドが `max` を「評価で品質向上が確認できた場合のみ」としているため。発見役を high とする Issue #134 とも揃える。Issue #142）。
+codex 敵対モード（--codex-advs-review-loop / セキュリティ自動発動）のラウンドで、Judge（Codex）に渡す反例を独立 Fable エージェント（監視・レビュー役）が生成する。1 ラウンド 1 起動。監査役・Breaker の effort は `high`（発見役を high とする Issue #134 と揃える）。
 
 `args`: `{ workDir, issueNumber, branch, defaultBranch, round, priorSummary, securityAudit, securityReason, startedAt }`（`securityAudit` はセキュリティ自動発動時のラウンド 1 のみ true。`securityReason`: 自動発動の理由〔検出したシグナル〕。監査役プロンプトに埋め込まれるため `securityAudit: true` のときは必ず渡す。`startedAt`: 起動直前に実測した開始日時〔開始ログ表示専用・省略可〕）
 
 ```js
 export const meta = {
   name: 'sir-codex-breaker',
-  description: 'codex 敵対モードの Breaker（独立 Sonnet）1 ラウンド分',
+  description: 'codex 敵対モードの Breaker（独立 Fable）1 ラウンド分',
   phases: [
     { title: 'Audit', detail: 'セキュリティ監査観点の注入（自動発動時・ラウンド 1 のみ）' },
     { title: 'Break', detail: '反例・攻撃シナリオ生成と反例テスト実行' },
@@ -796,6 +796,8 @@ const AUDIT_SCHEMA = {
   },
 }
 
+const RESTRAINT_NOTE = "Execution discipline: complete this role yourself with your own tool calls — do not launch subagents (Agent/Task tools), even to verify or double-check your own work, and do not add verification passes beyond the steps above. Deliver what was asked, at the scope intended, and stop short of actions clearly beyond it. Match the length of your output and any files you write to what the task needs: cover the substance, but do not pad with filler sections, redundant summaries, or boilerplate."
+
 log(`${ts(lastJst)}Breaker ラウンド ${args.round} 開始${args.securityAudit ? '（セキュリティ監査つき）' : ''}`)
 
 let auditNote = ''
@@ -807,8 +809,8 @@ if (args.securityAudit) {
 3. From the STRIDE, authentication / authorization, data flow, secrets, and PII perspectives, enumerate the threats to this change and the attack scenarios that should be verified.
 4. Write them to ${args.workDir}/security-audit.md.
 Reason for auto-activation: ${args.securityReason}
-Constraints: do not modify repository source files (writing security-audit.md is allowed). Do not commit or push. Final output: put the gist of the attack scenarios (within 15 lines) into summary. ${TAIL_NOTE}`,
-    { label: 'security:audit', phase: 'Audit', model: 'sonnet', effort: 'high', schema: AUDIT_SCHEMA })
+Constraints: do not modify repository source files (writing security-audit.md is allowed). Do not commit or push. Final output: put the gist of the attack scenarios (within 15 lines) into summary. ${RESTRAINT_NOTE} ${TAIL_NOTE}`,
+    { label: 'security:audit', phase: 'Audit', model: 'fable', effort: 'high', schema: AUDIT_SCHEMA })
   if (audit) {
     auditNote = `\n## Security-audit perspectives (must be reflected in your attack scenarios)\n${audit.summary}\nDetails: ${args.workDir}/security-audit.md\n`
     lastJst = audit.nowJst || lastJst
@@ -838,8 +840,8 @@ ${args.priorSummary ? `\n## Prior rounds\n${args.priorSummary}\n` : ''}${auditNo
 ## Output
 - Write the counterexample list (scenario, evidence, test execution results) to ${args.workDir}/breaker-round-${args.round}.md.
 - Return the same content in the structured output counterexamples.
-Constraints: no code changes other than probe tests. Do not commit. ${TAIL_NOTE}`,
-  { label: 'breaker:r' + args.round, phase: 'Break', model: 'sonnet', effort: 'high', schema: BREAK_SCHEMA })
+Constraints: no code changes other than probe tests. Do not commit. ${RESTRAINT_NOTE} ${TAIL_NOTE}`,
+  { label: 'breaker:r' + args.round, phase: 'Break', model: 'fable', effort: 'high', schema: BREAK_SCHEMA })
 if (breaker === null) return { status: 'agent-failed' }
 lastJst = breaker.nowJst || lastJst
 log(`[${breaker.nowJst} JST] breaker r${args.round} 完了（反例${breaker.counterexamples.length}件）`)
@@ -905,7 +907,7 @@ const fix = await agent(`You are the developer (reviewee) who implemented GitHub
 4. Clean up the probe tests containing .breaker-probe.: convert the ones corresponding to adopted defects into regular regression tests; delete the rest.
 5. Update ${notes}.
 Constraints: do not commit or push. Do not water down findings by reinterpreting or summarizing them (your decision is only the adopt / reject classification with explicit reasons). ${RESTRAINT_NOTE} ${TAIL_NOTE}`,
-  { label: 'dev:fix-r' + args.round, phase: 'Fix', model: 'opus', effort: 'max', schema: FIX_SCHEMA })
+  { label: 'dev:fix-r' + args.round, phase: 'Fix', model: 'sonnet', effort: 'high', schema: FIX_SCHEMA })
 if (fix === null) return { status: 'agent-failed' }
 log(`[${fix.nowJst} JST] dev fix r${args.round} 完了（採用${fix.adopted.length}件・不採用${fix.rejected.length}件）`)
 for (const a of fix.adopted.slice(0, 10)) log(`- 採用: ${a.title}`)
@@ -952,6 +954,8 @@ const QA_SCHEMA = {
   },
 }
 
+const RESTRAINT_NOTE = "Execution discipline: complete this role yourself with your own tool calls — do not launch subagents (Agent/Task tools), even to verify or double-check your own work, and do not add verification passes beyond the steps above. Deliver what was asked, at the scope intended, and stop short of actions clearly beyond it. Match the length of your output and any files you write to what the task needs: cover the substance, but do not pad with filler sections, redundant summaries, or boilerplate."
+
 log(`${ts(args.startedAt)}最終 QA 開始`)
 
 const qa = await agent(`You are an independent QA agent performing the final verification after the review loop, before commit.
@@ -961,8 +965,8 @@ const qa = await agent(`You are an independent QA agent performing the final ver
 4. Verify each acceptance criterion of Issue #${args.issueNumber}, one by one, against the code and execution results.
 5. If any file containing .breaker-probe. remains in the change set, report it in issues.
 Constraints: do not modify code or files. Do not commit or push.
-Verdict: set pass=true only when all tests pass and the acceptance criteria are met. ${TAIL_NOTE}`,
-  { label: 'qa:final', phase: 'FinalQA', model: 'sonnet', effort: 'high', schema: QA_SCHEMA })
+Verdict: set pass=true only when all tests pass and the acceptance criteria are met. ${RESTRAINT_NOTE} ${TAIL_NOTE}`,
+  { label: 'qa:final', phase: 'FinalQA', model: 'fable', effort: 'high', schema: QA_SCHEMA })
 if (qa === null) return { status: 'agent-failed' }
 log(`[${qa.nowJst} JST] FinalQA 完了（pass=${qa.pass}${qa.pass ? '' : `・指摘${qa.issues.length}件`}）`)
 for (const it of (qa.pass ? [] : qa.issues.slice(0, 5))) log(`- QA指摘: ${it.title}`)

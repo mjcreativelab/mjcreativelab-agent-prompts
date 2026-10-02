@@ -274,3 +274,33 @@ Opus 化したレビュー役（#111）が過剰処理（サブエージェン�
 - Judge（ラウンド 2+）の dismissed 率（誤棄却の兆候。包括ラウンドの opus Judge と比較）
 - transcript のモデルメタが round 1 = opus 系・round 2+ = `claude-sonnet-5-5` になっていること（CLI 未更新で Sonnet 5 のまま走っていないかの確認）
 - 劣化が見られた場合の切り戻しは `reviewModel` を `'opus'` 固定に戻すだけ（雛形 C の effort とは独立したレバー）
+
+## 役割別モデル配分 — 設計・指示 = Opus / 実装 = Sonnet / 監視・レビュー = Fable（2026-10-02 実装・実測待ち）
+
+グローバル CLAUDE.md「Claude モデルの役割分担」に合わせ、レビュー役・独立 QA・監査を Fable、開発者を Sonnet に固定した。判断の詳細は `docs/implementation-notes/2026-10-02-model-role-assignment.md`。Issue #142 の配分は、上記の採取を行う前に置き換わった（#142 節の採取項目は未実施のまま失効）。
+
+### 変更（sir 雛形 A〜E ↔ sip）
+
+| 役割 | 変更前 | 変更後 |
+|---|---|---|
+| claude 系レビュワー・Breaker・Judge バッチ | 包括ラウンド opus / high、以降 sonnet / high | 全ラウンド fable / high（`const reviewModel = 'fable'`） |
+| 雛形 C の監査役・Breaker | sonnet / high | fable / high |
+| 独立 QA（`qa:*`・雛形 E） | sonnet / high | fable / high |
+| 設計整合レビュー（`architect:review`） | opus / max | fable / max |
+| 開発者（`dev:*`・雛形 D。probe-cleanup を除く） | opus / max | sonnet / high |
+| 設計役（`architect:design`）・plan-editor | opus / max | 変更なし |
+
+抑制ノート（`RESTRAINT_NOTE`）は probe-cleanup を除く全 `agent()` に付けた（QA と雛形 C に追加）。
+
+### 確認済みと未確認
+
+- Agent ツールの `model: "fable"` は Claude Code v2.1.284 で `claude-fable-5-1` に解決される（transcript のモデルメタで確認）
+- Workflow `agent()` の `model: 'fable'` は未実測。次回の dogfooding で、transcript のモデルメタがレビュー役・QA = `claude-fable-*`、開発者 = `claude-sonnet-5-5` になっていることを最初に確認する
+
+### 採取予定（次回 dogfooding）
+
+- 収束ラウンド数・総時間・総トークン（#134 節の表と同一 Issue 規模で比較。Fable は最上位のため 1 ラウンドあたりのコスト増を見る）
+- 確認ラウンドの追加検出数と Judge の dismissed 率（opus / sonnet 時代と比較）
+- Breaker（特にレンズ S・雛形 C の監査役）の拒否・中断の有無（`breakerDegraded` / `auditFailed` / agent-failed の発生率。Fable はデュアルユース向けの追加安全策を持つ）
+- 開発者（sonnet / high）の QA 不合格率・QA 修正回数と、fix の不採用率（標準モードは Judge 段がなく、開発者が採用判定を担う）
+- 劣化が見られた場合の切り戻しは、レビュー役は `reviewModel` の 1 行、QA・開発者は各 `agent()` の `model` / `effort`
