@@ -1,6 +1,6 @@
 # Codex Judge 依頼テンプレート（敵対的モード・実装コード）
 
-敵対的モード（`--codex-advs-review-loop` / セキュリティ自動発動）のループで、Breaker（独立 Sonnet エージェント。Workflow 不能時はメインセッションが代行）が生成した反例を Codex（Judge）に裁定させる依頼文のテンプレート。`<>` を埋めて、**Claude Code ホスト**では `codex:rescue` へ task として渡し、**Codex CLI ホスト**（本 skill 自体を Codex CLI が実行している場合。`codex:rescue` は存在しない）では `codex exec` の入力として渡す。標準モードのレビュー依頼は [codex-review-prompt.md](codex-review-prompt.md) を使う。
+敵対的モード（`--codex-advs-review-loop` / セキュリティ自動発動）のループで、Breaker（独立 Fable エージェント。Workflow 不能時はメインセッションが代行）が生成した反例を Codex（Judge）に裁定させる依頼文のテンプレート。`<>` を埋めて、**Claude Code ホスト**では `codex:rescue` へ task として渡し、**Codex CLI ホスト**（本 skill 自体を Codex CLI が実行している場合。`codex:rescue` は存在しない）では `codex exec` の入力として渡す。標準モードのレビュー依頼は [codex-review-prompt.md](codex-review-prompt.md) を使う。
 
 ---
 
@@ -28,7 +28,7 @@ Breaker に迎合せず、独立した視点で判断すること。
 ローカル <デフォルトブランチ> は origin より古いことがあるため、必ず `origin/<デフォルトブランチ>` を基準にすること。
 
 ### 4. Breaker の反例リスト
-<Breaker（独立 Sonnet エージェント）が列挙した反例・攻撃シナリオ・不変条件違反。各項目に、対応する反例テストがあればその実行結果（fail / UNVERIFIED。pass した仮説は Breaker が破棄済みのため現れない）を併記する>
+<Breaker（独立 Fable エージェント）が列挙した反例・攻撃シナリオ・不変条件違反。各項目に、対応する反例テストがあればその実行結果（fail / UNVERIFIED。pass した仮説は Breaker が破棄済みのため現れない）を併記する>
 
 ### 5. 前ラウンドからの変更点（2 ラウンド目以降のみ）
 <採用した指摘と反映内容の要約。初回ラウンドではこのセクションを省略する>

@@ -175,7 +175,7 @@
       "effortLevel": "xhigh"
     }
   },
-  "advisorModel": "opus",
+  "advisorModel": "fable",
   "tui": "fullscreen",
   "showThinkingSummaries": true,
   "skipWorkflowUsageWarning": true,
