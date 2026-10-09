@@ -304,3 +304,11 @@ Opus 化したレビュー役（#111）が過剰処理（サブエージェン�
 - Breaker（特にレンズ S・雛形 C の監査役）の拒否・中断の有無（`breakerDegraded` / `auditFailed` / agent-failed の発生率。Fable はデュアルユース向けの追加安全策を持つ）
 - 開発者（sonnet / high）の QA 不合格率・QA 修正回数と、fix の不採用率（標準モードは Judge 段がなく、開発者が採用判定を担う）
 - 劣化が見られた場合の切り戻しは、レビュー役は `reviewModel` の 1 行、QA・開発者は各 `agent()` の `model` / `effort`
+
+### 追記（2026-10-09）: 作者のマシンでは上記の配分が効かない
+
+トークン使用量が多かったため、作者のグローバル設定を「通常 = sonnet・advisor = opus・サブエージェント = haiku」に変更し、`env` に `CLAUDE_CODE_SUBAGENT_MODEL=haiku` と `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` を設定した。FORCE を設定すると Agent ツール・Workflow `agent()` の `model` 指定とカスタム agent 定義の `model` がすべて無視される（CLI v2.1.294 のバイナリで確認）ため、作者のマシンで `smart-issue-plan` / `smart-issue-resolve` を実行すると、上記の fable 配分の採取はできない（全役割が Haiku 4.5 で動く）。
+
+- スキルの既定配分（上表）は変えていない。配布物として FORCE を設定していない環境では、そのまま動く
+- 上記の採取を行うには、`CLAUDE_CODE_SUBAGENT_MODEL_FORCE` を外した状態で新しいセッションを始める
+- FORCE 下で Haiku に `effort` 指定が渡ったときの挙動は未実測（CLI は Haiku を effort 非対応として扱う）。作者のマシンで初めて実行するときに、エラーにならず無視されるかを確認する
