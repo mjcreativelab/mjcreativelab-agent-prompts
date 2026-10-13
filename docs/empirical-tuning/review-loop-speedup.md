@@ -275,7 +275,7 @@ Opus 化したレビュー役（#111）が過剰処理（サブエージェン�
 - transcript のモデルメタが round 1 = opus 系・round 2+ = `claude-sonnet-5-5` になっていること（CLI 未更新で Sonnet 5 のまま走っていないかの確認）
 - 劣化が見られた場合の切り戻しは `reviewModel` を `'opus'` 固定に戻すだけ（雛形 C の effort とは独立したレバー）
 
-## 役割別モデル配分 — 設計・指示 = Opus / 実装 = Sonnet / 監視・レビュー = Fable（2026-10-02 実装・実測待ち）
+## 役割別モデル配分 — 設計・指示 = Opus / 実装 = Sonnet / 監視・レビュー = Fable（2026-10-02 実装・2026-10-13 に下記「Opus 統一」で置き換え。採取は未実施のまま失効）
 
 グローバル CLAUDE.md「Claude モデルの役割分担」に合わせ、レビュー役・独立 QA・監査を Fable、開発者を Sonnet に固定した。判断の詳細は `docs/implementation-notes/2026-10-02-model-role-assignment.md`。Issue #142 の配分は、上記の採取を行う前に置き換わった（#142 節の採取項目は未実施のまま失効）。
 
@@ -312,3 +312,30 @@ Opus 化したレビュー役（#111）が過剰処理（サブエージェン�
 - スキルの既定配分（上表）は変えていない。配布物として FORCE を設定していない環境では、そのまま動く
 - 上記の採取を行うには、`CLAUDE_CODE_SUBAGENT_MODEL_FORCE` を外した状態で新しいセッションを始める
 - FORCE 下で Haiku に `effort` 指定が渡ったときの挙動は未実測（CLI は Haiku を effort 非対応として扱う）。作者のマシンで初めて実行するときに、エラーにならず無視されるかを確認する
+
+## 役割別モデル配分 — オーケストレーター・設計・監視・レビュー = Opus / 通常作業 = Sonnet / 後始末 = Haiku（2026-10-13 実装・実測待ち）
+
+グローバル CLAUDE.md の構成（通常 = sonnet・advisor = opus・サブエージェント = haiku）に合わせ、監視・レビュー役を Fable から Opus に戻し、機械的な後始末（probe-cleanup）だけを Haiku にした。判断の詳細は `docs/implementation-notes/2026-10-13-model-role-opus-sonnet-haiku.md`。上の Fable 配分は、採取を行う前に置き換わった（Fable 節の採取項目は未実施のまま失効）。
+
+### 変更（sir 雛形 A〜E ↔ sip）
+
+| 役割 | 変更前 | 変更後 |
+|---|---|---|
+| claude 系レビュワー・Breaker・Judge バッチ | 全ラウンド fable / high | 全ラウンド opus / high（`const reviewModel = 'opus'`） |
+| 雛形 C の監査役・Breaker | fable / high | opus / high |
+| 独立 QA（`qa:*`・雛形 E） | fable / high | opus / high |
+| 設計整合レビュー（`architect:review`） | fable / max | opus / max |
+| probe-cleanup | sonnet / low | haiku（`effort` は指定しない） |
+| 開発者（`dev:*`）・設計役・plan-editor | sonnet / high、opus / max | 変更なし |
+
+### 未確認
+
+- Workflow `agent()` の `model: 'haiku'` と、`effort` を省略した場合の挙動は未実測。作者のマシンは `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` により全役割が Haiku で動くため、この配分は作者のマシンでは検証できない
+- 検証するには FORCE を外した状態で新しいセッションを始め、transcript のモデルメタが レビュー役・QA = `claude-opus-*`、開発者 = `claude-sonnet-5-5`、probe-cleanup = `claude-haiku-*` になっていることを確認する
+
+### 採取予定（FORCE を外した dogfooding）
+
+- 収束ラウンド数・総時間・総トークン（#134 節の表と同一 Issue 規模で比較）
+- 確認ラウンドの追加検出数と Judge の dismissed 率（#134 時点の opus 構成と比較）
+- 開発者（sonnet / high）の QA 不合格率・QA 修正回数と、fix の不採用率（QA が sonnet → opus になったため、#134 時点との差も見る）
+- 劣化が見られた場合の切り戻しは、レビュー役は `reviewModel` の 1 行、QA・probe-cleanup は各 `agent()` の `model` / `effort`
