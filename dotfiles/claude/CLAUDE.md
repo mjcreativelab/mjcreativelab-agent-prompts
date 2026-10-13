@@ -196,17 +196,17 @@ LLM コーディングの典型的ミスを減らす行動原則。慎重さ優�
 - **Gemini**: 補助的な観点追加役（セカンドオピニオン・盲点補完）
 
 ### Claude モデルの役割分担
-Claude Code の責任範囲の中で、役割ごとに使う Claude モデルを固定する。モデルはエイリアスで指定し、バージョン付き ID で固定しない（エイリアスは常に最新版に解決される）。
+トークンの利用量を抑えるため、使う Claude モデルを次の 3 つに固定する。モデルはエイリアスで指定し、バージョン付き ID で固定しない（エイリアスは常に最新版に解決される）。
 
-| 役割 | モデル（エイリアス） | 担当 |
+| 用途 | モデル（エイリアス） | 設定箇所（settings.json） |
 |---|---|---|
-| 設計・オーケストレーションの指示役 | Opus の最新版（`opus`） | メインセッション（settings.json の `model`）、設計役、計画の作成・編集 |
-| 指示に従った実装 | Sonnet の最新版（`sonnet`） | 実装・修正を担うサブエージェント / Workflow エージェント（レビュー指摘の反映を含む） |
-| 監視・レビュー | Fable の最新版（`fable`） | レビュワー・Breaker・Judge・独立 QA・セキュリティ監査、advisor（settings.json の `advisorModel`） |
+| 通常使用（メインセッション） | Sonnet の最新版（`sonnet`） | `model` |
+| アドバイザー | Opus の最新版（`opus`） | `advisorModel` |
+| サブエージェント | Haiku の最新版（`haiku`） | `env` の `CLAUDE_CODE_SUBAGENT_MODEL` と `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` |
 
-- サブエージェント（Agent ツール）や Workflow の `agent()` で役割を分けて起動するときは、上表に従って `model` を明示する（省略するとメインセッションのモデルを継承する）
-- `smart-issue-plan`（プラン系）と `smart-issue-resolve`（実装系）の役割別エージェントは、この配分で固定済み
-- メインセッション内で skill として行うレビュー（`/code-reviewer` 等）はメインセッションのモデルで動く。Fable にレビューさせたいときは、隔離エージェント（Agent ツール / Workflow）として `model: fable` で起動する
+- `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` を設定しているため、Agent ツールの `model` 指定・Workflow の `agent()` の `model` 指定・カスタム agent 定義の `model` はすべて無視され、Haiku で動く。サブエージェントを起動するときに `model` を指定しない
+- `smart-issue-plan` / `smart-issue-resolve` のスキル内の役割別モデル指定（`opus` / `sonnet` / `haiku`。公開スキルとしての既定）も、このマシンでは無視されて Haiku で動く。CLI は Haiku を effort 非対応として扱うため、スキル側の `effort` 指定は送られずに無視される見込み（未実測）
+- 特定のタスクだけ Haiku より強いサブエージェントが必要なときは、`CLAUDE_CODE_SUBAGENT_MODEL_FORCE` を外してから新しいセッションを始める（`env` はセッション開始時に読み込まれる）
 - ツール間の振り分け（Codex / Cursor / Gemini）は本節と独立で、従来どおり（閉じた実装タスクは Codex に振る）
 
 ### フェーズ別役割

@@ -1,5 +1,7 @@
 # 役割別モデル配分: 設計・指示 = Opus / 実装 = Sonnet / 監視・レビュー = Fable（2026-10-02）
 
+（2026-10-09 注記: グローバル CLAUDE.md の「Claude モデルの役割分担」節は、トークン使用量の削減のため「通常 = sonnet・advisor = opus・サブエージェント = haiku」の構成に書き換えた。下記のスキル内配分は公開スキルの既定として維持しており、作者のマシンでは `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` により無視される。）
+
 グローバル CLAUDE.md に「Claude モデルの役割分担」を追加し、`smart-issue-plan` と `smart-issue-resolve` の役割別エージェントを、設計役と plan-editor は `opus`、開発者は `sonnet`、レビュー役・独立 QA・セキュリティ監査は `fable` に固定した。Issue #142 の「レビュー役は包括ラウンドのみ opus、以降は sonnet」という配分は置き換えた。Workflow 経由で `fable` が解決されるかと、コスト・品質への影響はまだ実測していない（採取項目は `docs/empirical-tuning/review-loop-speedup.md` の同日節）。
 
 ## 配分

@@ -24,7 +24,11 @@
       "/tmp"
     ]
   },
-  "model": "opus",
+  "model": "sonnet",
+  "env": {
+    "CLAUDE_CODE_SUBAGENT_MODEL": "haiku",
+    "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1"
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -175,7 +179,7 @@
       "effortLevel": "xhigh"
     }
   },
-  "advisorModel": "fable",
+  "advisorModel": "opus",
   "tui": "fullscreen",
   "showThinkingSummaries": true,
   "skipWorkflowUsageWarning": true,
