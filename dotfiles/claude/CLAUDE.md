@@ -205,7 +205,7 @@ LLM コーディングの典型的ミスを減らす行動原則。慎重さ優�
 | サブエージェント | Haiku の最新版（`haiku`） | `env` の `CLAUDE_CODE_SUBAGENT_MODEL` と `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` |
 
 - `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` を設定しているため、Agent ツールの `model` 指定・Workflow の `agent()` の `model` 指定・カスタム agent 定義の `model` はすべて無視され、Haiku で動く。サブエージェントを起動するときに `model` を指定しない
-- `smart-issue-plan` / `smart-issue-resolve` のスキル内の役割別モデル指定（`opus` / `sonnet` / `fable`。公開スキルとしての既定）も、このマシンでは無視されて Haiku で動く。CLI は Haiku を effort 非対応として扱うため、スキル側の `effort` 指定は送られずに無視される見込み（未実測）
+- `smart-issue-plan` / `smart-issue-resolve` のスキル内の役割別モデル指定（`opus` / `sonnet` / `haiku`。公開スキルとしての既定）も、このマシンでは無視されて Haiku で動く。CLI は Haiku を effort 非対応として扱うため、スキル側の `effort` 指定は送られずに無視される見込み（未実測）
 - 特定のタスクだけ Haiku より強いサブエージェントが必要なときは、`CLAUDE_CODE_SUBAGENT_MODEL_FORCE` を外してから新しいセッションを始める（`env` はセッション開始時に読み込まれる）
 - ツール間の振り分け（Codex / Cursor / Gemini）は本節と独立で、従来どおり（閉じた実装タスクは Codex に振る）
 
