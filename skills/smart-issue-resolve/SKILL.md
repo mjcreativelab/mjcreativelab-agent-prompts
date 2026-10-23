@@ -2,7 +2,7 @@
 name: smart-issue-resolve
 description: >
   GitHub Issue ID を受け取り、Issue を読み込んでブランチを作成・チェックアウトし、実装に着手する。
-  既存の実装計画（smart-issue-plan が作成したコメント or `[実装計画]` Issue）があれば参照する。
+  既存の実装計画（smart-issue-plan が作成したコメント or `[実装計画]` Issue）があれば参照する。Jira キー / URL なら `[実装計画][KEY]` 計画 Issue を引いて着手する。
   実装は役割別エージェント（設計役=Opus・開発者=Sonnet・独立 QA / レビュー=Opus）のオーケストレーションで行う
   （Claude Code の Workflow ツール前提。利用できない環境は単一セッション実装に degrade）。
   作業完了後に smart-commit の使用を提案する（勝手にコミット・push はしない）。
@@ -15,7 +15,7 @@ description: >
   --claude-adv-review-loop（-cldarl）は独立エージェントの Breaker × Judge（Opus）による敵対的レビューループを回す（Codex 不要）。
   認証・個人情報・決済などセキュリティ影響を検出した場合は、フラグ未指定でも敵対的レビューを自動発動する（Codex 不在環境では claude 系で代替）。
 disable-model-invocation: true
-argument-hint: "#issue-number [-p 追加指示] [-wt|--worktree] [--codex-review-loop|-cdxrl] [--codex-advs-review-loop|-cdxarl] [--claude-review-loop|-cldrl] [--claude-adv-review-loop|-cldarl]"
+argument-hint: "#issue-number|PROJ-123|<Jira URL> [-p 追加指示] [-wt|--worktree] [--codex-review-loop|-cdxrl] [--codex-advs-review-loop|-cdxarl] [--claude-review-loop|-cldrl] [--claude-adv-review-loop|-cldarl]"
 allowed-tools: Read, Bash, Glob, Grep, Edit, Write, AskUserQuestion, Skill, Workflow, EnterWorktree
 ---
 
@@ -59,16 +59,17 @@ GitHub Issue を起点に、ブランチ作成 → 役割別エージェント�
 - worktree フラグ（位置は問わない。レビューループのフラグと同じパスで該当トークンを除去する。`-p` の前後分割より前に処理する — 後回しにすると `-p` の追加指示に紛れ込む）:
   - `--worktree` または `-wt` → `{worktree}` = true（現在の作業ツリーを変更せず、git worktree に分離した作業ディレクトリでブランチ作成から実装まで行う。詳細は手順 3・5）
   - 無ければ `{worktree}` = false（既定。従来どおり現在の作業ツリーで直接ブランチを作成する）
-- `-p` より前の部分 → Issue 番号（`#` は除去）
+- `-p` より前の部分 → 対象（Issue 番号 / Jira キー / Jira URL）。先頭の `#` を除いて判定する: `^[0-9]+$` なら Issue 番号、`^[A-Z][A-Z0-9_]+-[0-9]+$` なら Jira キー、パスに `/browse/<キー>`（またはクエリに `selectedIssue=<キー>`）を含む `http(s)://` なら Jira URL。Jira と判定したら手順 1 の前に [references/jira-input.md](references/jira-input.md) を読む
 - `-p` より後の部分 → `{プロンプト}`（実装方針・制約に関する追加指示）
-- `-p` がない場合 → 残り全体を Issue 番号として扱い、`{プロンプト}` は空
-- Issue 番号が未指定の場合 → AskUserQuestion で Issue 番号を確認する
+- `-p` がない場合 → 残り全体を対象として扱い、`{プロンプト}` は空
+- 対象が未指定、またはどの形式にも当たらない場合（例: `proj-123`）→ AskUserQuestion で Issue 番号または Jira キーを確認する
 
 例: `/smart-issue-resolve #42 -p テストも書いて` → Issue 番号: 42、プロンプト: 「テストも書いて」
 例: `/smart-issue-resolve #42 --codex-review-loop` → レビューモード: standard、系統: codex
 例: `/smart-issue-resolve #42 -cdxarl` → レビューモード: adversarial、系統: codex
 例: `/smart-issue-resolve #42 -cldarl` → レビューモード: adversarial、系統: claude
 例: `/smart-issue-resolve #42 -wt -cldrl` → worktree モードで着手し、claude 標準レビューループも実施
+例: `/smart-issue-resolve PROJ-123 -cldrl` → Jira キーから `[実装計画][PROJ-123]` 計画 Issue を引いて着手し、claude 標準レビューループも実施
 
 `{レビューモード}` が `off` でも、手順 6 の後にセキュリティ影響を検出した場合は `adversarial` に自動昇格する（「レビューモードの確定」参照）。
 
@@ -80,18 +81,21 @@ GitHub API 操作には **GitHub MCP ツール**を優先する（`issue_read`, 
 
 ### 1. Issue の読み取り
 
+> **Jira 入力**（Jira キー / URL）の場合は、先に [references/jira-input.md](references/jira-input.md) の「1-J 計画 Issue の解決」で計画 Issue 番号 N を決め、以降は N を Issue 番号として扱う。`#N` で指定した Issue が Jira 起点の計画 Issue（タイトルが `[実装計画][<キー>]` で始まる、または本文冒頭に `> 元チケット:` 行がある）だった場合も、手順 1 で読んだあとに同ファイルを読み、手順 2 の要件更新の検知・手順 4 のブランチ名・PR の Jira リンクを Jira 起点として行う。
+
 引数から抽出した Issue 番号で `issue_read` を呼ぶ。以下に該当する場合は通知して終了:
 
 - Issue が存在しない、またはクローズ済み
 - Pull Request（`issue_read` の `pull_request` フィールドあり）— PR は本スキルの対象外
 - Issue 本文が空でラベルも無い — 要件を判断できないため、ユーザーに内容を確認してから進める
 
-コンテキストに残すのは **タイトル・本文（要件・受け入れ基準部分）・ラベル** のみ。他のフィールド（イベント履歴、関係の薄いコメント等）は破棄する。本文が長い場合は要件・受け入れ基準だけ抽出する。
+コンテキストに残すのは **タイトル・本文（要件・受け入れ基準部分）・ラベル** のみ。他のフィールド（イベント履歴、関係の薄いコメント等）は破棄する。本文が長い場合は要件・受け入れ基準だけ抽出する。ただし、本文の `## 実装計画` 節・Jira ヘッダー行（`> 元チケット:` / `> 要件基準:`）・`### 要件の要約` は手順 2 以降で使うので保持する。
 
 ### 2. 既存の実装計画の確認
 
 smart-issue-plan が作成した計画があれば、実装前に参照する。
 
+- Issue のタイトルが `[実装計画]` で始まり、かつ本文に `## 実装計画` 見出しがあれば、それも計画として扱う（`/smart-issue-plan` が作った計画 Issue を直接指定した場合や、Jira 経由で解決した場合）。タイトルが `[実装計画]` で始まらない通常の Issue は従来どおり。このときは下の `[実装計画]` タイトル検索を省く（自分自身がヒットするため）。本文とコメントの両方に計画があれば、どちらを使うかユーザーに確認する。陳腐化チェックは採用した計画の「分析時点」SHA で行う
 - Issue のコメントに「## 実装計画」を含むものがないか `issue_read` のコメント一覧から確認する
 - `search_issues` で「[実装計画] <タイトルのキーワード>」を検索する
 
@@ -113,6 +117,10 @@ smart-issue-plan が作成した計画があれば、実装前に参照する。
 4. 計画言及ファイルに触れない無関係なコミットでは陳腐化提案をしない — 着手スキルなので過剰な中断を避ける
 
 `git` が使えない環境では本チェックをスキップしてよい（クロスツール配布の degradation）。
+
+**要件更新の検知（Jira 起点の計画 Issue のみ）**:
+
+Jira の現在の `updated` を計画 Issue 本文の「要件基準: Jira updated <ts>」と比較し、計画作成後に更新されていれば警告して続行 / 再計画をユーザーに確認する（自動で再計画しない）。比較規則・警告文・MCP 不在時の扱いは [references/jira-input.md](references/jira-input.md) の「2-J 要件更新の検知」に従う。陳腐化チェックの提案と同時に出た場合は、確認を 1 回にまとめる。
 
 ### 3. 作業ツリーの状態確認
 
@@ -147,6 +155,7 @@ stash する場合は **元ブランチ名・変更内容の概要** をユー�
 - `{説明}` は英語、3〜5 語以内
 - 本スキルでは Issue 番号が引数で確定しているため `issue-{番号}` は必ず含める
 - マイルストーン分割がある場合は末尾に `-m{番号}` を付ける（例: `feature/issue-42-add-oauth-m1`）
+- Jira 起点の場合は `{type}/issue-{計画Issue番号}-{キー小文字}-{説明}` とする（例: `feature/issue-45-proj-123-add-oauth-login`）。`issue-{番号}` は残す。キー部分の `_` の扱い・`-wt` の 64 文字上限は [references/jira-input.md](references/jira-input.md) の「手順 4 ブランチ名」に従う
 
 **既存ブランチの扱い**:
 - 同じ Issue 番号のブランチがローカル・リモートに **1 件** 既存 → チェックアウトか新規作成かユーザーに確認する
@@ -197,7 +206,7 @@ stash する場合は **元ブランチ名・変更内容の概要** をユー�
    - **永続するのは「端末の再起動・セッション切替」に対してであって、worktree の削除に対してではない** — `-wt` で作った worktree は `EnterWorktree` が作成したものなので `ExitWorktree({ action: "remove" })` の対象になり、セッション終了時にも keep / remove を尋ねられる。remove で worktree ディレクトリ（とそのブランチ）が消えれば `{作業Dir}` も一緒に失われる（未コミットファイル・元ブランチに無いコミットが残っている場合は `discard_changes` を指定しない限りツール側が削除を拒否するが、その防御に頼らない）。これは意図した設計で、掃除が要らない代わりに進行中の作業ファイルも失われる。長時間のレビューループでは各セット終了時に WIP コミットを挟み、次ラウンド以降も必要な判断記録は `docs/implementation-notes/` などリポジトリ内の成果物に残させる
 
    あわせて本スキルの [assets/gen-diff.sh](assets/gen-diff.sh)（Claude Code では `${CLAUDE_SKILL_DIR}/assets/gen-diff.sh` が実体のパスに展開される）を `{作業Dir}/gen-diff.sh` へコピーする（claude 系レビューループのレビュー正本 `diff.md` の生成に使う。開発者エージェントは `{作業Dir}` しか知らないため、スキル本体のパスに依存させない。コピーできない環境ではレビュー役が自前の git 取得にフォールバックする）
-3. **context.md の書き出し** — 雛形の書式で `{作業Dir}/context.md` を書く（Issue 要件・実装計画要約・`-p` 指示・ブランチ / diff 基準・テスト方針・プロジェクト固有基準）。テスト方針には関連スコープの実行コマンドを具体化して書く。テストが特定できない / フレームワークが不明な場合は、手動確認方針（再現手順・確認すべき画面や API レスポンス等）をユーザーに提示・合意してから書く
+3. **context.md の書き出し** — 雛形の書式で `{作業Dir}/context.md` を書く（Issue 要件・実装計画要約・`-p` 指示・ブランチ / diff 基準・テスト方針・プロジェクト固有基準）。テスト方針には関連スコープの実行コマンドを具体化して書く。テストが特定できない / フレームワークが不明な場合は、手動確認方針（再現手順・確認すべき画面や API レスポンス等）をユーザーに提示・合意してから書く。Jira 起点では「Issue 要件」に元チケット行を加える（[references/jira-input.md](references/jira-input.md) の「手順 6-3 context.md」）
 4. **ゲート** — `{作業Dir}/context.md` が存在しない場合は Workflow を起動しない（作成に戻る）
 5. **実装 Workflow の起動** — 雛形 A（sir-implement）を起動する。Workflow の起動（雛形 A〜E 共通）では、起動直前に `TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M:%S'` を実測した開始日時を `startedAt` として `args` に含める（開始ログ表示用。グローバルルールの開始日時表示と同じ実測値を使い回してよい）。`needDesign` は「計画が無い、または計画の実装手順が具体ファイルに落ちていない」場合に true。内部フロー: 設計役（条件付き）→ 開発者 → 独立 QA（不合格なら開発者が修正、最大 2 回）→ 設計レビュー役の事後レビュー（設計整合・保守性・可用性）→ 開発者の採用判定・反映 → QA 再確認
 6. **結果の扱い**:
@@ -241,6 +250,8 @@ stash する場合は **元ブランチ名・変更内容の概要** をユー�
 ```
 
 `{作業Dir}/impl-notes.md` に開発者エージェントが記録した「自分で判断した事項」があれば、ユーザーが把握すべき決定事項として言及する。
+
+Jira 起点なら、`/smart-pr` で PR を作るときに `## 概要` へ入れる Jira リンク（`- Jira: [<キー>](<URL>)`）も併記する。
 
 「作業ディレクトリ」の行は `{worktree}` = true のときだけテンプレートに含める（false のときは行ごと省く）。`{worktree}` = true の場合、セッションは worktree 内に留まったまま完了する（`ExitWorktree` はユーザーから明示的な指示があるまで本スキルからは呼び出さない）。完了案内には worktree のパスに加えて、元の作業ツリーへ戻るには `ExitWorktree({ action: "keep" })` を使うか新規セッションを開始する旨を明記する。この worktree は `EnterWorktree` が作成したものなので、セッション終了時にも keep / remove を尋ねられる — 作業を残すには **keep** を選ぶ必要がある（remove は worktree ディレクトリ**とそのブランチ**を削除するため、`{作業Dir}` の作業ファイルに加えてローカルブランチも失われる。未コミット変更・元ブランチに無いコミットがある場合は `discard_changes` なしでは拒否される）旨も併記する。マージ後のクリーンアップとして worktree・ブランチを削除するのは `/smart-git-sync` に任せる（remove を選ぶとその前にブランチごと消える）。
 
@@ -338,6 +349,7 @@ Breaker（独立 Opus エージェント）× Codex=Judge の二者構造でレ�
    - claude 敵対・収束時: `🤖 Claude 敵対的レビュー済み（Breaker×Judge=独立 Opus, N ラウンド, 最終ラウンド採用指摘 0 件）`
    - 打ち切り時: `🤖 <Codex|Claude> レビュー実施（<standard|adversarial>, N ラウンド, 未収束で打ち切り）`
    - 記載先: 標準構成なら `## 備考`、簡易構成なら `## レビュアー向け補足`
+   - Jira 起点の場合、Jira リンク `- Jira: [<キー>](<URL>)` を `## 概要` に加える（標準構成はリンク箇条書き、簡易構成は概要文のあと）。`Closes #NN` は計画 Issue に対して従来どおり。`assets/pr-template.md` は編集しない（詳細は [references/jira-input.md](references/jira-input.md) の「PR」）
 4. **完了報告** — PR URL・変更サマリ・ループ記録（系統, モード, ラウンド数, 各ラウンドの指摘数 / 採用数 / 不採用理由）・最終 QA 結果を提示して終了。`{worktree}` = true の場合は worktree のパスも併記し、元の作業ツリーへ戻るには `ExitWorktree({ action: "keep" })` か新規セッション開始が必要な旨を伝える（PR マージ後の worktree・ブランチ削除は `/smart-git-sync` に任せる）
 
 behind 時のマージ確認・競合対応は履歴に影響するため、自動オプトインの対象外とし通常どおりユーザーに確認する。ユーザーが手動で `/smart-commit` `/smart-pr` を使う経路は従来どおり有効（自動実行時のみ git/gh 直呼びに切り替える）。
