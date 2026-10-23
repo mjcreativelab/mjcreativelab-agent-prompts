@@ -7,6 +7,7 @@ GitHub Issue ID を受け取り、Issue を読み込んでブランチを作成�
 ```
 /smart-issue-resolve #134
 /smart-issue-resolve #134 -p テストも書いて
+/smart-issue-resolve PROJ-123                # Jira キー（または Jira URL）から計画 Issue を引いて着手
 /smart-issue-resolve #134 --worktree              # または -wt（現在の作業ツリーを変更せず git worktree で作業）
 /smart-issue-resolve #134 --codex-review-loop     # または -cdxrl
 /smart-issue-resolve #134 --codex-advs-review-loop # または -cdxarl（敵対的レビュー・Judge=Codex）
@@ -47,8 +48,8 @@ model はエイリアス指定（環境で利用可能な最新の同系統モ�
 
 ## フロー
 
-1. Issue を読み取り、内容を把握する
-2. 既存の実装計画（`/smart-issue-plan` が作成したコメント or `[実装計画]` Issue）があれば参照し、計画記録の分析時点 SHA と最新デフォルトブランチの差分から陳腐化を検出する（古ければ計画更新を提案）
+1. Issue を読み取り、内容を把握する（Jira キー / URL の場合は、タイトルが `[実装計画][PROJ-123]` の計画 Issue を GitHub 側で検索して、その Issue で進める。0 件なら `/smart-issue-plan PROJ-123` を案内して終了、複数件なら確認する。詳細は [references/jira-input.md](references/jira-input.md)）
+2. 既存の実装計画（`/smart-issue-plan` が作成したコメント or `[実装計画]` Issue。Issue 本文の `## 実装計画` も含む）があれば参照し、計画記録の分析時点 SHA と最新デフォルトブランチの差分から陳腐化を検出する（古ければ計画更新を提案）。Jira 起点の計画 Issue では、Jira の現在の `updated` が本文の「要件基準」より新しければ警告する（ステータス変更や他者コメントでも警告されうる。止めずに確認を促すだけで、自動再計画はしない）
 3. 作業ツリーの状態を確認する（未コミット変更は識別可能なメッセージ付きで stash。`--worktree`/`-wt` 指定時は現在の作業ツリーに触れないため stash 不要）
 4. Issue に基づいたブランチを作成・チェックアウトする（`--worktree`/`-wt` 指定時は EnterWorktree で worktree の作成とセッション切り替えを一括して行い、自動生成されたブランチ名を規約どおりの名前にリネームする。既存ブランチを使う場合は worktree 内で checkout し、不要になった自動生成ブランチを削除する）
 5. プロジェクト固有基準を収集し、作業ディレクトリに context.md（要件・計画・テスト方針・基準）を書き出す（worktree 内で作業している場合は worktree 内の `.smart-issue-work/resolve-issue-<番号>/`、メイン作業ツリーでは OS の一時領域）
@@ -93,6 +94,7 @@ model はエイリアス指定（環境で利用可能な最新の同系統モ�
 ## 前提条件
 
 - **git** — ブランチ作成・チェックアウトに使用
+- **Atlassian MCP（任意）** — Jira 起点の要件更新の検知だけに使用（`getJiraIssue` 相当）。使えない場合は検知を「未実施」と明示して続行する。Jira へのコメント・ステータス遷移は行わない
 - **GitHub MCP サーバー** — Issue の読み取りに必須（[GitHub MCP plugin](https://github.com/anthropics/claude-code-plugins/tree/main/github)）
 - **EnterWorktree ツール（Claude Code 本体機能）** — `--worktree`/`-wt` 使用時に必須。worktree の作成もこのツールに任せる（手動 `git worktree add` は upstream tracking の設定で共有 `.git/config` へ書き込み、sandbox を有効にしたプロジェクトで失敗するという報告があるため使わない。ただし worktree 作成時の checkout が `Operation not permitted` で拒否される症状はこの経路変更では解消しない）。利用できない環境（他エージェント）・`EnterWorktree` が失敗した場合は通常のブランチ作成にフォールグレードする。既に linked worktree 内にいるセッションではフォールグレードせず、メイン作業ツリーへ戻ってからの再実行を促して停止する（他 Issue の作業ツリーを変更しないため）
 - **Workflow ツール（Claude Code 本体機能）** — 役割別エージェントのオーケストレーションと claude 系レビューループに必須。model / effort の明示指定（設計役 = opus/max、開発者 = sonnet/high、レビュワー・Breaker・Judge・独立 QA = opus/high、後始末役 = haiku 等）は Workflow の `agent()` でのみ可能。model はエイリアス指定のため、開発者の `sonnet` を Sonnet 5.5 に解決させるには **Claude Code v2.1.284 以上**が必要（それ未満では Sonnet 5 で動く）。利用できない環境ではメインセッションの単一セッション実装に degrade する（claude 系レビューループは利用不可）

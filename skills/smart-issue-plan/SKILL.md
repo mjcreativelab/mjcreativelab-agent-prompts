@@ -5,13 +5,14 @@ description: >
   Issue コメントまたは新規 Issue として投稿する。
   ユーザーが「計画立てて」「実装計画」「設計して」「#123 の計画」「/smart-issue-plan #123」と言ったら起動する。
   smart-issue-resolve（実装着手）とは別物。計画だけ作りたいときに使う。
+  Jira キー / URL（`PROJ-123`）を渡すと、Jira の要件から `[実装計画][KEY]` Issue を作成・更新し、Jira にリンクをコメントする。
   --codex-review-loop（-cdxrl）を付けると投稿前に Codex 標準レビューループを実施する。
   --codex-advs-review-loop（-cdxarl）は Claude=Breaker × Codex=Judge の敵対的レビューループを回す。
   --claude-review-loop（-cldrl）はレビュワーエージェント（Opus。包括ラウンドのみ観点を G1/G2/G3 の 3 グループに分割し並列起動、以降は単発 1 体）による標準計画レビューループ、
   --claude-adv-review-loop（-cldarl）は独立エージェントの Breaker × Judge（Opus）による敵対的計画レビューループを回す（Codex 不要・Claude Code の Workflow ツール前提。利用できない環境はレビュー未実施で degrade）。
   認証・個人情報・決済などセキュリティ影響を検出した場合は、フラグ未指定でも敵対的レビューを自動発動する（Codex 不在環境では claude 系で代替）。
 disable-model-invocation: true
-argument-hint: "#issue-number [-p 追加指示] [--codex-review-loop|-cdxrl] [--codex-advs-review-loop|-cdxarl] [--claude-review-loop|-cldrl] [--claude-adv-review-loop|-cldarl]"
+argument-hint: "#issue-number|PROJ-123|<Jira URL> [-p 追加指示] [--codex-review-loop|-cdxrl] [--codex-advs-review-loop|-cdxarl] [--claude-review-loop|-cldrl] [--claude-adv-review-loop|-cldarl]"
 allowed-tools: Read, Bash, Glob, Grep, Write, AskUserQuestion, Skill, Workflow
 ---
 
@@ -34,15 +35,16 @@ GitHub Issue を分析し、コードベースを探索して実装計画を作�
   - どれも無ければ `{レビューモード}` は `off`
   - いずれかのフラグが明示指定された場合は `{ループ明示}` = true を立てる（収束後の自動投稿の可否に使う）
   - 旧 `-codex-loop`（ハイフン 1 つ）を検出した場合は、`--codex-review-loop`（`-cdxrl`）／敵対的レビューなら `--codex-advs-review-loop`（`-cdxarl`）にリネームされた旨を案内して処理を止め、再指定を促す（旧フラグを Issue 番号の一部として解釈しない）
-- `-p` より前の部分 → Issue 番号（`#` は除去）
+- `-p` より前の部分 → 対象（Issue 番号 / Jira キー / Jira URL）。先頭の `#` を除いて判定する: `^[0-9]+$` なら Issue 番号、`^[A-Z][A-Z0-9_]+-[0-9]+$` なら Jira キー、パスに `/browse/<キー>`（またはクエリに `selectedIssue=<キー>`）を含む `http(s)://` なら Jira URL。Jira と判定したら手順 1 の前に [references/jira-input.md](references/jira-input.md) を読む
 - `-p` より後の部分 → `{プロンプト}`（計画の観点・制約に関する追加指示）
-- `-p` がない場合 → 残り全体を Issue 番号として扱い、`{プロンプト}` は空
-- Issue 番号が未指定の場合 → AskUserQuestion で Issue 番号を確認する
+- `-p` がない場合 → 残り全体を対象として扱い、`{プロンプト}` は空
+- 対象が未指定、またはどの形式にも当たらない場合（例: `proj-123`）→ AskUserQuestion で Issue 番号または Jira キーを確認する
 
 例: `/smart-issue-plan #42 -p パフォーマンスを重視して` → Issue 番号: 42、プロンプト: 「パフォーマンスを重視して」
 例: `/smart-issue-plan #42 --codex-review-loop` → レビューモード: standard、系統: codex
 例: `/smart-issue-plan #42 -cdxarl` → レビューモード: adversarial、系統: codex
 例: `/smart-issue-plan #42 -cldarl` → レビューモード: adversarial、系統: claude
+例: `/smart-issue-plan PROJ-123` → Jira キー: PROJ-123（Jira 起点。常に新規 Issue か既存計画 Issue の更新）
 
 `{レビューモード}` が `off` でも、計画がセキュアな設計を要すると判定した場合は `adversarial` に自動昇格する（「レビューループ（codex 系 / claude 系）」セクションのセキュリティ自動発動を参照）。`{レビューモード}` が `off` 以外になった場合の挙動は同セクションを参照。
 
@@ -53,6 +55,8 @@ GitHub API 操作には **GitHub MCP ツール**を優先する。コードベ�
 ## 手順
 
 ### 1. Issue の読み取り
+
+> **Jira 入力**（Jira キー / URL）の場合は、`issue_read` の代わりに [references/jira-input.md](references/jira-input.md) の「1-J 読み取り」を行う。`#N` で指定した Issue が Jira 起点の計画 Issue（タイトルが `[実装計画][<キー>]` で始まる、または本文冒頭に `> 元チケット:` 行がある）だった場合は、そのキーで 1-J からやり直す（クローズ済みでもここでは終了しない。クローズ済みの扱いは [references/jira-input.md](references/jira-input.md) の「検索結果の扱い」に従う）。
 
 引数から抽出した Issue 番号で `issue_read` を呼ぶ。以下に該当する場合は通知して終了:
 
@@ -66,12 +70,16 @@ Issue 本文が Figma / Slack / 外部ドキュメントへのリンクに依存
 
 ### 2. 既存計画の確認
 
+> Jira 起点の場合は、この手順の代わりに [references/jira-input.md](references/jira-input.md) の「2-J 重複防止」を行う。
+
 Issue のコメントに「## 実装計画」を含むものがあるか確認する。また `search_issues` で「[実装計画] <タイトルのキーワード>」を検索する。
 
 - **既存計画あり** → 更新モードへ（手順 8）
 - **既存計画なし** → 新規作成モードへ（手順 3）
 
 ### 3. 出力先の確認
+
+> Jira 起点の場合はこの手順をスキップし、常に「新規 Issue」とする（2-J）。
 
 計画を作成する前に、出力先をユーザーに確認する:
 
@@ -135,6 +143,7 @@ Issue の内容から関連するキーワード・ファイルパス・機能�
 - Issue に紐づく作業は必ず `issue-{番号}` を含める
 - 説明部分は **英語・3〜5 語** 程度
 - マイルストーン分割がある場合は末尾に `-m{番号}` を付ける
+- Jira 起点の場合は `{type}/issue-<計画Issue番号>-{キー小文字}-{説明}` とする。計画テンプレートの読み替えは [references/jira-input.md](references/jira-input.md) の「5-J」に従う
 
 計画完成後、「レビューループ（codex 系 / claude 系）」セクションの **レビューモードの確定（セキュリティ自動発動）** を評価する。`{レビューモード}` が `off` 以外に確定したらレビューループを実施し、その後は次のように分岐する:
 
@@ -147,7 +156,7 @@ Issue の内容から関連するキーワード・ファイルパス・機能�
 
 > レビューループを実施し、かつ `{ループ明示}` = true の場合はこの手順をスキップする（オプション指定が投稿のオプトイン）。セキュリティ自動発動のみ（`{ループ明示}` = false）の場合、およびループのフォールバック（codex:rescue / codex exec 利用不能 / Workflow 利用不能）時は通常どおり実施する。
 
-作成した計画の全文をユーザーに提示し、投稿前に承認を得る。
+作成した計画の全文をユーザーに提示し、投稿前に承認を得る。Jira 起点では、Issue タイトル・本文冒頭・Jira に投稿するコメント文もあわせて提示する。
 
 - 影響範囲・手順・リスクに抜けがないかユーザーが確認できる形で出す
 - 承認なしに GitHub へ投稿しない（一度投稿したコメントの編集履歴は残るため）
@@ -159,16 +168,17 @@ Issue の内容から関連するキーワード・ファイルパス・機能�
 
 - **Issue コメント** → `add_issue_comment` で投稿
 - **新規 Issue** → `issue_write` で「[実装計画] <元タイトル>」として作成し、元 Issue への参照リンクを本文冒頭に記載
+- **Jira 起点** → 上記の新規 Issue の代わりに [references/jira-input.md](references/jira-input.md) の「7-J 投稿」に従う（`issue_write` で作成 → Jira に通常コメントでリンクを投稿 → `updated` を取り直して要件基準行と推奨ブランチ名のプレースホルダを書き戻す）
 
 レビューループを実施した場合、投稿本文の末尾にレビュー済み表記（「レビューループ（codex 系 / claude 系）」セクション参照）を付ける。
 
-投稿後、URL を表示し、実装に着手する場合は `/smart-issue-resolve #<Issue 番号>` を新規セッションで実行するよう案内して終了。
+投稿後、URL を表示し、実装に着手する場合は `/smart-issue-resolve #<Issue 番号>` を新規セッションで実行するよう案内して終了（Jira 起点は `/smart-issue-resolve <Jira キー>` または `#<計画Issue番号>`）。
 
 ---
 
 ### 8. 更新モード
 
-既存の計画コメント/Issue を読み取り、前回の計画からの差分を特定して更新する。
+既存の計画コメント/Issue を読み取り、前回の計画からの差分を特定して更新する。Jira 起点では 8a・8c に [references/jira-input.md](references/jira-input.md) の「8-J 更新モード」を加える。
 
 **8a. 変更点の特定**
 - 計画の「分析時点」欄に記録された SHA を基準に、計画作成後の変更を特定する:
@@ -276,7 +286,7 @@ Claude=Breaker × Codex=Judge の二者構造でレビューする。計画に�
    - いずれの場合もスキル側で削除手順は持たない（worktree 内は `/smart-git-sync` の worktree 削除に、`/tmp` は OS に任せる）
    - **置き場所を `.claude/` 配下にしない**（sandbox 有効なプロジェクトは `.claude` を `denyWrite` にしているのが通例で、作成・更新が `Operation not permitted` で落ちる）。sandbox で作成・書き込みが拒否された場合は `mktemp -d`（それも拒否される隔離セッションではセッション scratchpad 配下）へフォールバックし、作業ファイルが揮発する旨をユーザーに伝える
    - **永続するのは「端末の再起動・セッション切替」に対してであって、worktree の削除に対してではない**（`ExitWorktree({ action: "remove" })` やセッション teardown で `{作業Dir}` も消える。これは掃除不要とのトレードオフ）
-2. **context.md / plan.md の書き出し** — 雛形の書式で `{作業Dir}/context.md`（Issue 要件・`-p` 指示・プロジェクト固有基準）と `{作業Dir}/plan.md`（確定した初期計画の全文）を書く
+2. **context.md / plan.md の書き出し** — 雛形の書式で `{作業Dir}/context.md`（Issue 要件・`-p` 指示・プロジェクト固有基準）と `{作業Dir}/plan.md`（確定した初期計画の全文）を書く（Jira 起点の見出し・作業Dir 名・`issueNumber`・プレースホルダの扱いは [references/jira-input.md](references/jira-input.md) の「レビューループの実行時」に従う）
 3. **ゲート** — `{作業Dir}/context.md` と `{作業Dir}/plan.md` のどちらか一方でも存在しない場合は Workflow を起動しない（作成に戻る）
 4. **開始日時の実測** — 起動直前に `TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M:%S'` を実測し、`startedAt` として Workflow の `args` に含める（開始ログ表示用。継続セットの再起動でも再実測する）
 

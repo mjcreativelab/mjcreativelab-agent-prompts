@@ -7,6 +7,8 @@ GitHub Issue の実装計画を作成・更新するスキル。
 ```
 /smart-issue-plan #123
 /smart-issue-plan #123 -p パフォーマンスを重視して
+/smart-issue-plan PROJ-123                  # Jira キー起点（Jira URL も可）
+/smart-issue-plan https://<site>.atlassian.net/browse/PROJ-123
 /smart-issue-plan #123 --codex-review-loop   # または -cdxrl
 /smart-issue-plan #123 --codex-advs-review-loop   # または -cdxarl（敵対的レビュー）
 /smart-issue-plan #123 --claude-review-loop   # または -cldrl（Codex 不要）
@@ -51,6 +53,20 @@ GitHub Issue の実装計画を作成・更新するスキル。
 - 投稿本文の末尾に `🤖 Codex レビュー済み（標準…）` / `🤖 Codex 敵対的レビュー済み（Breaker×Judge…）` / `🤖 Claude レビュー済み（標準…）` / `🤖 Claude 敵対的レビュー済み（Breaker×Judge=独立 Opus…）` を記載する
 - レビューが使えない環境（codex 系は `codex:rescue` / `codex exec` いずれも不能、claude 系は Workflow ツール不能）では Claude がレビュー・裁定を代行せず、通常フロー（承認ゲートあり）にフォールバックする（レビュー済み表記なし）
 
+## Jira チケット起点
+
+引数に Jira キー（`PROJ-123`）または Jira URL を渡すと、Jira の要件から計画 Issue を作る。詳細な手順は [references/jira-input.md](references/jira-input.md)。
+
+- **判定**: `42` / `#42` は GitHub Issue、`^[A-Z][A-Z0-9_]+-[0-9]+$` は Jira キー、`/browse/PROJ-123` を含む URL は Jira URL。どれにも当たらない値（例: `proj-123`）は確認に回す
+- **要件の取得**: Atlassian MCP の `getJiraIssue` 相当でサマリ・説明・ステータス・`updated` を取得する。完了系ステータス（statusCategory = Done）なら通知して終了する
+- **重複防止**: タイトルを `[実装計画][PROJ-123] <Jira サマリ>` とし、同じキーの既存計画 Issue（open / closed）があれば更新モードに入る。closed がヒットした場合は再オープンして更新 / 新規作成 / 中止をユーザーに確認する
+- **出力先**: 常に新規 Issue（出力先の確認はしない）。本文冒頭に元チケットのリンク・「要件の正本は Jira」の注記・要件基準（Jira の `updated`）・要件の要約を置く
+- **Jira へのリンク**: Issue 作成後、Jira に**通常コメント**で Issue へのリンクを投稿する（Web links は使わない）。コメント投稿で `updated` が進むため、投稿後に `updated` を読み直して本文の「要件基準」を書き戻す
+- **ブランチ名**: `{type}/issue-{計画Issue番号}-{jira キー小文字}-{説明}`（例: `feature/issue-45-proj-123-add-oauth-login`）。小文字キーが Jira の開発パネルで紐づくかは未検証
+- **次のアクション**: `/smart-issue-resolve PROJ-123`（または `#<計画Issue番号>`）で実装に着手できる
+- **更新モード**: 本文の要件の要約と要件基準を最新の Jira に合わせて書き直す。Jira へのコメントは再投稿しない
+- Jira のステータスの自動遷移はしない。`-cdxrl` 等のフラグを明示した場合は、承認ゲートなしで GitHub Issue 作成と Jira コメント投稿まで自動で行われる点に注意（公開リポジトリでは Jira の要件の要約が載る）
+
 ## 動作モード
 
 - **新規作成**: Issue に計画がなければ、コードベースを探索して実装計画を作成する
@@ -58,7 +74,7 @@ GitHub Issue の実装計画を作成・更新するスキル。
 
 計画には **分析時点の commit SHA と依拠した前提**（データ契約・参照ブロック等）を記録するため、後から `/smart-issue-resolve` 側で計画の陳腐化を機械的に検出できる。
 
-計画の出力先は Issue コメント（デフォルト）または新規 Issue「[実装計画]」から選択できる。
+計画の出力先は Issue コメント（デフォルト）または新規 Issue「[実装計画]」から選択できる（Jira 起点は常に新規 Issue）。
 
 ## 推奨: 新規セッションで実行する
 
@@ -71,6 +87,7 @@ GitHub Issue の実装計画を作成・更新するスキル。
 ## 前提条件
 
 - **git** — 分析時点 SHA の記録（`git rev-parse`）と更新モードでの変更点特定（`git log`）に使用（git が使えない環境では SHA は「未記録」となり、更新モードの差分検出が制限される）
+- **Atlassian MCP** — Jira キー / URL を渡すときのみ必須（`getJiraIssue` 相当と Jira コメント追加ツール。使えない場合は停止し、要件の貼り付けで続行するか選べる）
 - **GitHub MCP サーバー** — Issue の読み取り・計画コメント投稿に必須（[GitHub MCP plugin](https://github.com/anthropics/claude-code-plugins/tree/main/github)）
 - **Codex プラグイン（`codex:rescue` スキル）または Codex CLI（`codex exec`）** — `--codex-review-loop` / `--codex-advs-review-loop` 使用時のみ必須（Claude Code ホストは `codex:rescue` スキル、本 skill 自体を Codex CLI が実行している場合は `codex exec` が使えること。後者はホストのコマンドサンドボックス内では起動できないため、サンドボックス外での昇格実行の承認が必要）。セキュリティ自動発動時は codex 系優先だが、不在なら claude 系（Workflow）へフォールバックする
 - **Workflow ツール** — `--claude-review-loop` / `--claude-adv-review-loop` 使用時、および Codex 不在でのセキュリティ自動発動時に必須（Claude Code 固有。利用できない環境では claude 系レビューは実施されず通常フローへ degrade する）。レビュー役の model は `opus`（エイリアス指定で最新の Opus に解決される）

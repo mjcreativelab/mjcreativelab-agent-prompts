@@ -1,6 +1,7 @@
 ## 実装計画
 
 > 対象 Issue: #<!-- Issue 番号 -->
+<!-- Jira 起点では、この行を `> 対象チケット: <Jira キー>（Jira）` に置き換える（references/jira-input.md「5-J」） -->
 > 分析時点: `<short SHA>`（<分析日>）<!-- git rev-parse --short HEAD の値と分析日。git が無い環境では「未記録」と書く -->
 
 ### 概要
@@ -46,6 +47,7 @@
 ### 推奨ブランチ名
 <!-- SKILL.md 手順 5 のブランチ命名規則に従い {type}/issue-{番号}-{説明} 形式で提案する -->
 <!-- type: feature / fix / refactor / docs / chore / test -->
+<!-- Jira 起点: {type}/issue-<計画Issue番号>-{Jira キー小文字}-{説明}。<計画Issue番号> は投稿後に確定値へ書き戻すプレースホルダ -->
 
 ```
 <type>/issue-<番号>-<kebab-case の説明>
@@ -55,3 +57,4 @@
 <!-- この計画を承認した後に実行するコマンド・手順 -->
 
 - 新規セッションで `/smart-issue-resolve #<Issue 番号>` を実行して実装に着手する
+<!-- Jira 起点: 新規セッションで `/smart-issue-resolve <Jira キー>`（または `#<計画Issue番号>`）を実行して実装に着手する -->
