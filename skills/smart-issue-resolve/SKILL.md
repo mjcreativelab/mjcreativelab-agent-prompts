@@ -81,7 +81,7 @@ GitHub API 操作には **GitHub MCP ツール**を優先する（`issue_read`, 
 
 ### 1. Issue の読み取り
 
-> **Jira 入力**（Jira キー / URL）の場合は、先に [references/jira-input.md](references/jira-input.md) の「1-J 計画 Issue の解決」で計画 Issue 番号 N を決め、以降は N を Issue 番号として扱う。`#N` で指定した Issue が Jira 起点の計画 Issue（タイトルが `[実装計画][<キー>]` で始まる、または本文冒頭に `> 元チケット:` 行がある）だった場合も、手順 1 で読んだあとに同ファイルを読み、手順 2 の要件更新の検知・手順 4 のブランチ名・PR の Jira リンクを Jira 起点として行う。
+> **Jira 入力**（Jira キー / URL）の場合は、先に [references/jira-input.md](references/jira-input.md) の「1-J 計画 Issue の解決」（Jira チケットのコメントに記載された GitHub Issue を優先し、無ければタイトル検索）で計画 Issue 番号 N を決め、以降は N を Issue 番号として扱う。`#N` で指定した Issue が Jira 起点の計画 Issue（タイトルが `[実装計画][<キー>]` で始まる、または本文冒頭に `> 元チケット:` 行がある）だった場合も、手順 1 で読んだあとに同ファイルを読み、手順 2 の要件更新の検知・手順 4 のブランチ名・PR の Jira リンクを Jira 起点として行う。
 
 引数から抽出した Issue 番号で `issue_read` を呼ぶ。以下に該当する場合は通知して終了:
 
